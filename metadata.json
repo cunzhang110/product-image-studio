@@ -1,6 +1,6 @@
 {
-  "name": "3.0版本: 批量生图大师 (Gemini 3.1 Flash Image)",
-  "description": "基于 Gemini-3.1-Flash-Image-Preview 的专业级批量生图工具，支持提示词导入、参考图生图、任务管理及高质量 4K 输出。",
+  "name": "产品生图工作台",
+  "description": "围绕单个产品参考图生成批量提示词、审核并批量生图的工作台。",
   "requestFramePermissions": [
     "camera"
   ]

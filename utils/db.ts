@@ -1,6 +1,8 @@
+import type { ProductBatch } from "../domain/productWorkflow";
+
 export const initDB = () => {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('GeminiImageDB', 1);
+    const request = indexedDB.open('GeminiImageDB', 2);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
     request.onupgradeneeded = (e) => {
@@ -11,7 +13,32 @@ export const initDB = () => {
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings', { keyPath: 'id' });
       }
+      if (!db.objectStoreNames.contains('productBatches')) {
+        db.createObjectStore('productBatches', { keyPath: 'id' });
+      }
     };
+  });
+};
+
+export const saveProductBatchesToDB = async (batches: ProductBatch[]) => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('productBatches', 'readwrite');
+    const store = tx.objectStore('productBatches');
+    store.clear();
+    batches.forEach(batch => store.put(batch));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const loadProductBatchesFromDB = async (): Promise<ProductBatch[]> => {
+  const db = await initDB();
+  return new Promise<ProductBatch[]>((resolve, reject) => {
+    const tx = db.transaction('productBatches', 'readonly');
+    const request = tx.objectStore('productBatches').getAll();
+    request.onsuccess = () => resolve(request.result as ProductBatch[]);
+    request.onerror = () => reject(request.error);
   });
 };
 
