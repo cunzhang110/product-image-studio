@@ -371,6 +371,8 @@ const requestJson = async <T>(provider: ServiceProvider, path: string, init: Req
   });
 };
 
+export const requestProviderJson = requestJson;
+
 const extractTextFromGeminiResponse = (response: GeminiNativeResponse) => {
   const parts = response.candidates?.[0]?.content?.parts || [];
   return parts.map(part => part.text || "").join("\n").trim();
