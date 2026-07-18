@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createProductBatch, type ImageGeneration, type ProductBatch } from "../domain/productWorkflow";
-import { continueManualAnchoredBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./productBatchWorkflow";
+import { continueManualAnchoredBatch, resumeProductBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./productBatchWorkflow";
 
 const batchWithRefs = (patch: Partial<ProductBatch> = {}) => ({
   ...createProductBatch("产品"),
@@ -51,5 +51,68 @@ describe("product batch workflow", () => {
     const result = await runAutomaticProductBatch(batchWithRefs({ workflowMode: "automatic", promptStrategy: "anchored-angles" }), deps, vi.fn());
     expect(result.runPhase).toBe("failed");
     expect(result.images).toHaveLength(1);
+  });
+
+  it("returns a stopped batch when prompt generation is aborted", async () => {
+    const controller = new AbortController();
+    const deps = dependencies();
+    deps.generatePromptPlan = async () => {
+      controller.abort();
+      throw new DOMException("Stopped", "AbortError");
+    };
+
+    const result = await runAutomaticProductBatch(
+      batchWithRefs({ workflowMode: "automatic" }),
+      deps,
+      vi.fn(),
+      controller.signal
+    );
+
+    expect(result.runPhase).toBe("stopped");
+    expect(result.runError).toBeUndefined();
+  });
+
+  it("resumes only unfinished standard jobs", async () => {
+    const initial = await runAutomaticProductBatch(batchWithRefs({ workflowMode: "automatic" }), dependencies(), vi.fn());
+    const stopped = {
+      ...initial,
+      runPhase: "stopped" as const,
+      images: initial.images.map((job, index) => index === 0
+        ? job
+        : { ...job, status: "stopped" as const, resultUrl: undefined })
+    };
+    const deps = dependencies();
+    const runJobs = vi.fn(deps.runJobs);
+    deps.runJobs = runJobs;
+
+    const result = await resumeProductBatch(stopped, deps, vi.fn(), new AbortController().signal);
+
+    expect(runJobs.mock.calls[0][1]).toHaveLength(2);
+    expect(result.images[0].resultUrl).toBe(initial.images[0].resultUrl);
+    expect(result.images.every(job => job.status === "completed")).toBe(true);
+  });
+
+  it("reuses a completed master scene when resuming derived views", async () => {
+    const initial = await runAutomaticProductBatch(
+      batchWithRefs({ workflowMode: "automatic", promptStrategy: "anchored-angles" }),
+      dependencies(),
+      vi.fn()
+    );
+    const stopped = {
+      ...initial,
+      runPhase: "stopped" as const,
+      images: initial.images.map((job, index) => index === 0
+        ? job
+        : { ...job, status: "stopped" as const, resultUrl: undefined })
+    };
+    const deps = dependencies();
+    const runJobs = vi.fn(deps.runJobs);
+    deps.runJobs = runJobs;
+
+    const result = await resumeProductBatch(stopped, deps, vi.fn(), new AbortController().signal);
+
+    expect(runJobs.mock.calls[0][1].every(job => job.role === "derived")).toBe(true);
+    expect(result.images[0].id).toBe(initial.images[0].id);
+    expect(result.images[0].resultUrl).toBe(initial.images[0].resultUrl);
   });
 });
