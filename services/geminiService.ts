@@ -183,7 +183,21 @@ const createError = (message: string, status?: number) => {
   return error;
 };
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const createAbortError = () => new DOMException("Generation stopped", "AbortError");
+
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) return reject(createAbortError());
+  const timeout = setTimeout(() => {
+    signal?.removeEventListener("abort", onAbort);
+    resolve();
+  }, ms);
+  const onAbort = () => {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", onAbort);
+    reject(createAbortError());
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+});
 
 const getProviderConfig = (provider: ServiceProvider) => {
   if (provider === "apimart") {
@@ -259,7 +273,7 @@ const parsePayload = (rawText: string) => {
   }
 };
 
-const withRequestSlot = async <T>(provider: ServiceProvider, task: () => Promise<T>) => {
+const withRequestSlot = async <T>(provider: ServiceProvider, task: () => Promise<T>, signal?: AbortSignal) => {
   const state = requestSlotStates[provider];
   const providerConfig = getProviderConfig(provider);
   const previous = state.queue;
@@ -269,18 +283,24 @@ const withRequestSlot = async <T>(provider: ServiceProvider, task: () => Promise
     release = resolve;
   });
 
-  await previous;
-
-  const waitUntil = Math.max(
-    state.lastRequestCompletedAt + providerConfig.minRequestIntervalMs,
-    state.nextAllowedRequestAt
-  );
-  const waitMs = waitUntil - Date.now();
-  if (waitMs > 0) {
-    await sleep(waitMs);
-  }
-
   try {
+    await Promise.race([
+      previous,
+      signal && new Promise<never>((_, reject) => {
+        if (signal.aborted) reject(createAbortError());
+        else signal.addEventListener("abort", () => reject(createAbortError()), { once: true });
+      })
+    ].filter(Boolean));
+
+    const waitUntil = Math.max(
+      state.lastRequestCompletedAt + providerConfig.minRequestIntervalMs,
+      state.nextAllowedRequestAt
+    );
+    const waitMs = waitUntil - Date.now();
+    if (waitMs > 0) {
+      await sleep(waitMs, signal);
+    }
+
     const result = await task();
     state.lastRequestCompletedAt = Date.now();
     return result;
@@ -331,7 +351,8 @@ const requestJson = async <T>(provider: ServiceProvider, path: string, init: Req
             ...(init.headers || {})
           }
         });
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") throw error;
         throw createError(`网络请求失败，请检查 ${providerConfig.label} 地址或本地网络。`);
       }
 
@@ -360,7 +381,7 @@ const requestJson = async <T>(provider: ServiceProvider, path: string, init: Req
           Date.now() + delayMs
         );
         console.warn(`[${providerConfig.label}] 触发 429，${Math.round(delayMs / 1000)} 秒后进行第 ${attempt + 1} 次重试`);
-        await sleep(delayMs);
+        await sleep(delayMs, init.signal);
         continue;
       }
 
@@ -368,7 +389,7 @@ const requestJson = async <T>(provider: ServiceProvider, path: string, init: Req
     }
 
     throw createError("API 频率达到上限 (429)，请稍后再试。", 429);
-  });
+  }, init.signal);
 };
 
 export const requestProviderJson = requestJson;
@@ -459,8 +480,8 @@ const buildAPIMartReferenceImageUrls = (referenceImages: ReferenceImageItem[], p
   return getReferencedImagesFromPrompt(referenceImages, prompt).map(reference => reference.imageData);
 };
 
-const fetchImageAsDataUrl = async (imageUrl: string) => {
-  const response = await fetch(imageUrl);
+const fetchImageAsDataUrl = async (imageUrl: string, signal?: AbortSignal) => {
+  const response = await fetch(imageUrl, { signal });
   if (!response.ok) {
     throw createError(`下载结果图片失败 (${response.status})`);
   }
@@ -530,7 +551,8 @@ const generateMuzhiImage = async (
   imageSize: ImageSize,
   imageModel: string,
   referenceImages?: ReferenceImageItem[],
-  referencePrompt?: string
+  referencePrompt?: string,
+  signal?: AbortSignal
 ) => {
   const referencedImages = getReferencedImagesFromPrompt(referenceImages || [], referencePrompt || prompt);
   const imageUrls = referencedImages.map(reference => reference.imageData);
@@ -548,7 +570,8 @@ const generateMuzhiImage = async (
 
   const response = await requestJson<MuzhiImageGenerationResponse>("muzhi", imageUrls.length > 0 ? "/v1/images/edits" : "/v1/images/generations", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
 
   const imageBase64 = extractDirectImageBase64(response);
@@ -558,7 +581,7 @@ const generateMuzhiImage = async (
 
   const imageUrl = extractDirectImageUrl(response);
   if (imageUrl) {
-    return await fetchImageAsDataUrl(imageUrl);
+    return await fetchImageAsDataUrl(imageUrl, signal);
   }
 
   const firstDataItem = (Array.isArray(response.data) ? response.data[0] : response.data) as Record<string, unknown> | undefined;
@@ -570,8 +593,8 @@ const generateMuzhiImage = async (
     || response.id
     || (Array.isArray(response.data) ? response.data[0]?.task_id || response.data[0]?.id : response.data?.task_id || response.data?.id);
   if (taskId) {
-    const polledImageUrl = await pollOpenAICompatibleImageTask("muzhi", taskId);
-    return await fetchImageAsDataUrl(polledImageUrl);
+    const polledImageUrl = await pollOpenAICompatibleImageTask("muzhi", taskId, signal);
+    return await fetchImageAsDataUrl(polledImageUrl, signal);
   }
 
   throw createError("Muzhi 已接收请求，但没有返回图片或任务 ID。");
@@ -584,7 +607,8 @@ const createOpenAICompatibleImageTask = async (
   imageSize: ImageSize,
   imageModel: string,
   referenceImages?: ReferenceImageItem[],
-  referencePrompt?: string
+  referencePrompt?: string,
+  signal?: AbortSignal
 ) => {
   const imageUrls = buildAPIMartReferenceImageUrls(referenceImages || [], referencePrompt || prompt);
   const normalizedModel = imageModel.trim().toLowerCase();
@@ -613,7 +637,8 @@ const createOpenAICompatibleImageTask = async (
 
   const response = await requestJson<APIMartImageTaskCreateResponse>(provider, "/v1/images/generations", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal
   });
 
   const taskId = response.task_id
@@ -626,14 +651,15 @@ const createOpenAICompatibleImageTask = async (
   return taskId;
 };
 
-const pollOpenAICompatibleImageTask = async (provider: ServiceProvider, taskId: string) => {
+const pollOpenAICompatibleImageTask = async (provider: ServiceProvider, taskId: string, signal?: AbortSignal) => {
   const startedAt = Date.now();
   const pollConfig = getTaskPollConfig(provider);
   const providerLabel = getProviderConfig(provider).label;
 
   while (Date.now() - startedAt < pollConfig.timeoutMs) {
     const response = await requestJson<APIMartTaskStatusResponse>(provider, `/v1/tasks/${encodeURIComponent(taskId)}?language=zh`, {
-      method: "GET"
+      method: "GET",
+      signal
     });
 
     const status = response.status || response.task_status || response.state || response.data?.status || response.data?.task_status || response.data?.state || "";
@@ -651,7 +677,7 @@ const pollOpenAICompatibleImageTask = async (provider: ServiceProvider, taskId: 
       throw createError(response.error?.message || response.message || `${providerLabel} 任务执行失败。`);
     }
 
-    await sleep(pollConfig.intervalMs);
+    await sleep(pollConfig.intervalMs, signal);
   }
 
   throw createError(`${providerLabel} 任务轮询超时，请稍后重试。`);
@@ -742,7 +768,8 @@ export const generateImage = async (
   provider: ServiceProvider,
   referenceImages?: ReferenceImageItem[],
   imageModelOverride?: string,
-  referencePrompt?: string
+  referencePrompt?: string,
+  signal?: AbortSignal
 ): Promise<string> => {
   const providerConfig = getProviderConfig(provider);
   const imageModel = imageModelOverride?.trim() || providerConfig.defaultImageModel;
@@ -755,7 +782,8 @@ export const generateImage = async (
         imageSize,
         imageModel,
         referenceImages,
-        referencePrompt
+        referencePrompt,
+        signal
       );
     }
 
@@ -767,10 +795,11 @@ export const generateImage = async (
         imageSize,
         imageModel,
         referenceImages,
-        referencePrompt
+        referencePrompt,
+        signal
       );
-      const imageUrl = await pollOpenAICompatibleImageTask(provider, taskId);
-      return await fetchImageAsDataUrl(imageUrl);
+      const imageUrl = await pollOpenAICompatibleImageTask(provider, taskId, signal);
+      return await fetchImageAsDataUrl(imageUrl, signal);
     }
 
     const parts: Array<Record<string, unknown>> = [
@@ -780,6 +809,7 @@ export const generateImage = async (
 
     const response = await requestJson<GeminiNativeResponse>("yunwu", `/v1beta/models/${encodeURIComponent(imageModel)}:generateContent`, {
       method: "POST",
+      signal,
       body: JSON.stringify({
         contents: [
           {
@@ -807,6 +837,7 @@ export const generateImage = async (
     throw createError(textMessage || "生成成功但未获取到图像数据。");
   } catch (error) {
     const serviceError = error as Error & { status?: number };
+    if (serviceError.name === "AbortError") throw serviceError;
     const status = serviceError.status || 0;
     const message = serviceError.message || "未知故障";
 

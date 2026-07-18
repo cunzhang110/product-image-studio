@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { buildProductPromptRequest, parseAnchoredScenePlan } from "./productPromptService";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildProductPromptRequest, generateProductPrompts, parseAnchoredScenePlan } from "./productPromptService";
 
 const baseInput = {
   productName: "青柠气泡水",
@@ -10,6 +10,8 @@ const baseInput = {
 };
 
 describe("product prompt request", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("uses Qwen3.5 9B with the style reference image", () => {
     const request = buildProductPromptRequest(baseInput);
 
@@ -46,5 +48,17 @@ describe("product prompt request", () => {
     }), 3);
     expect(plan.anglePrompts).toHaveLength(2);
     expect(plan.anchorPrompt).toBe("正面主场景");
+  });
+
+  it("passes the workflow abort signal to the prompt request", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '["场景一"]' } }]
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generateProductPrompts({ ...baseInput, count: 1 }, controller.signal);
+
+    expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal);
   });
 });

@@ -100,12 +100,13 @@ const extractResponseText = (response: any) => {
   return "";
 };
 
-export const generateProductPrompts = async (input: ProductPromptInput): Promise<string[]> => {
+export const generateProductPrompts = async (input: ProductPromptInput, signal?: AbortSignal): Promise<string[]> => {
   const request = buildProductPromptRequest(input);
   const response = await fetch(request.path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request.body)
+    body: JSON.stringify(request.body),
+    signal
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -116,15 +117,16 @@ export const generateProductPrompts = async (input: ProductPromptInput): Promise
   return prompts.slice(0, Math.max(1, input.count));
 };
 
-export const generateProductPromptPlan = async (input: ProductPromptInput): Promise<ProductPromptPlan> => {
+export const generateProductPromptPlan = async (input: ProductPromptInput, signal?: AbortSignal): Promise<ProductPromptPlan> => {
   if (input.strategy !== "anchored-angles") {
-    return { strategy: "varied-scenes", prompts: await generateProductPrompts(input) };
+    return { strategy: "varied-scenes", prompts: await generateProductPrompts(input, signal) };
   }
   const request = buildProductPromptRequest(input);
   const response = await fetch(request.path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request.body)
+    body: JSON.stringify(request.body),
+    signal
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || data?.message || `提示词服务请求失败 (${response.status})`);
