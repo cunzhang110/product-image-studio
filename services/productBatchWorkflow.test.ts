@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createProductBatch, type ImageGeneration, type ProductBatch } from "../domain/productWorkflow";
+import { createDefaultWineExtensionNodes, createProductBatch, type ImageGeneration, type ProductBatch } from "../domain/productWorkflow";
 import { continueManualAnchoredBatch, resumeProductBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./productBatchWorkflow";
 
 const batchWithRefs = (patch: Partial<ProductBatch> = {}) => ({
@@ -154,5 +154,59 @@ describe("product batch workflow", () => {
     expect(runJobs.mock.calls[0][1].every(job => job.role === "derived")).toBe(true);
     expect(result.images[0].id).toBe(initial.images[0].id);
     expect(result.images[0].resultUrl).toBe(initial.images[0].resultUrl);
+  });
+
+  it("runs automatic custom branches in node order", async () => {
+    const nodes = createDefaultWineExtensionNodes().slice(0, 2);
+    const deps = dependencies();
+    deps.generatePromptPlan = async () => ({
+      strategy: "anchored-angles",
+      sceneBible: "固定婚宴桌面",
+      anchorPrompt: "主场景",
+      anglePrompts: []
+    });
+
+    const result = await runAutomaticProductBatch(batchWithRefs({
+      workflowMode: "automatic",
+      promptStrategy: "anchored-angles",
+      sameSceneBranchMode: "custom-map",
+      extensionNodes: nodes
+    }), deps, vi.fn());
+
+    expect(result.images).toHaveLength(3);
+    expect(result.images[0].role).toBe("anchor");
+    expect(result.images[1].promptSnapshot).toContain(nodes[0].instruction);
+    expect(result.images[2].promptSnapshot).toContain(nodes[1].instruction);
+  });
+
+  it("rebuilds manual custom branches after node edits without regenerating the master", async () => {
+    const nodes = createDefaultWineExtensionNodes().slice(0, 2);
+    const deps = dependencies();
+    deps.generatePromptPlan = async () => ({
+      strategy: "anchored-angles",
+      sceneBible: "固定婚宴桌面",
+      anchorPrompt: "主场景",
+      anglePrompts: []
+    });
+    const paused = await startManualAnchoredBatch(batchWithRefs({
+      promptStrategy: "anchored-angles",
+      sameSceneBranchMode: "custom-map",
+      extensionNodes: nodes
+    }), deps, vi.fn());
+    const anchor = paused.images[0];
+    const editedInstruction = "右侧低机位手持酒瓶，标签朝向镜头";
+
+    const completed = await continueManualAnchoredBatch({
+      ...paused,
+      extensionNodes: [
+        { ...nodes[0], instruction: editedInstruction },
+        nodes[1]
+      ]
+    }, deps, vi.fn());
+
+    expect(completed.images).toHaveLength(3);
+    expect(completed.images[0].id).toBe(anchor.id);
+    expect(completed.images[1].promptSnapshot).toContain(editedInstruction);
+    expect(completed.images[1].anchorReferenceImageSnapshot).toBe(anchor.resultUrl);
   });
 });

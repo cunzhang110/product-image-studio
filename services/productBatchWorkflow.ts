@@ -1,4 +1,4 @@
-import { createImageJobs, promptsToVariants, type ImageGeneration, type ProductBatch } from "../domain/productWorkflow";
+import { buildCustomAnchoredPrompts, createImageJobs, promptsToVariants, type ImageGeneration, type ProductBatch } from "../domain/productWorkflow";
 import type { ProductPromptPlan } from "./productPromptService";
 import { isGenerationAbort } from "./productImageQueue";
 
@@ -22,12 +22,16 @@ const emit = (batch: ProductBatch, onUpdate: BatchUpdate) => {
 
 const preparePrompts = (batch: ProductBatch, plan: ProductPromptPlan) => {
   const texts = plan.strategy === "anchored-angles"
-    ? [plan.anchorPrompt, ...plan.anglePrompts]
+    ? batch.sameSceneBranchMode === "custom-map"
+      ? buildCustomAnchoredPrompts(batch, plan.anchorPrompt, plan.sceneBible)
+      : [plan.anchorPrompt, ...plan.anglePrompts]
     : plan.prompts;
   return {
     ...batch,
     sceneBible: plan.strategy === "anchored-angles" ? plan.sceneBible : "",
-    prompts: promptsToVariants(texts.slice(0, batch.requestedPromptCount))
+    prompts: promptsToVariants(batch.sameSceneBranchMode === "custom-map"
+      ? texts
+      : texts.slice(0, batch.requestedPromptCount))
   };
 };
 
@@ -153,9 +157,19 @@ export const continueManualAnchoredBatch = async (
 ): Promise<ProductBatch> => {
   const anchor = input.images.find(image => image.role === "anchor" && image.status === "completed" && image.resultUrl);
   if (!anchor?.resultUrl) throw new Error("请先生成并确认主场景图。");
-  const allJobs = jobsForAnchoredBatch(input);
+  const refreshedInput = input.sameSceneBranchMode === "custom-map"
+    ? {
+      ...input,
+      prompts: promptsToVariants(buildCustomAnchoredPrompts(
+        input,
+        input.prompts[0]?.prompt || anchor.promptSnapshot,
+        input.sceneBible
+      ))
+    }
+    : input;
+  const allJobs = jobsForAnchoredBatch(refreshedInput);
   const derived = allJobs.slice(1).map(job => ({ ...job, anchorReferenceImageSnapshot: anchor.resultUrl }));
-  let batch = emit({ ...input, images: [anchor, ...derived], runPhase: "generating-images", stage: "results" }, onUpdate);
+  let batch = emit({ ...refreshedInput, images: [anchor, ...derived], runPhase: "generating-images", stage: "results" }, onUpdate);
   const completed = await dependencies.runJobs(batch, derived, images => {
     batch = emit({ ...batch, images: [anchor, ...images] }, onUpdate);
   }, signal);
