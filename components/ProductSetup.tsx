@@ -74,9 +74,9 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
         <h2>先定风格，再锁定产品</h2>
         <p>风格图决定提示词的画面调性；产品图在最终生图时拥有最高优先级。</p>
       </div>
-      <button className="primary-button desktop-primary" onClick={onGenerate} disabled={loading}>
+      <button className="primary-button desktop-primary" onClick={onGenerate} disabled={loading || (batch.workflowMode === "automatic" && (!batch.styleReferenceImage || !batch.productReferenceImage))}>
         <Sparkles size={17} />
-        {loading ? "正在生成提示词" : `生成 ${batch.requestedPromptCount} 条提示词`}
+        {loading ? "正在处理" : batch.workflowMode === "automatic" ? `开始自动生成 ${batch.requestedPromptCount} 张` : batch.promptStrategy === "anchored-angles" ? "生成主场景" : `生成 ${batch.requestedPromptCount} 条提示词`}
       </button>
     </div>
 
@@ -104,9 +104,20 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
       </div>
 
       <div className="setup-fields">
+        <div className="mode-grid">
+          <div className="field-group"><span>操作模式</span><div className="segment-control two">
+            <button className={batch.workflowMode === "manual" ? "active" : ""} onClick={() => onPatch({ workflowMode: "manual" })}>手动</button>
+            <button className={batch.workflowMode === "automatic" ? "active" : ""} onClick={() => onPatch({ workflowMode: "automatic" })}>自动</button>
+          </div></div>
+          <div className="field-group"><span>生成方式</span><div className="segment-control two">
+            <button className={batch.promptStrategy === "varied-scenes" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "varied-scenes" })}>多场景创意</button>
+            <button className={batch.promptStrategy === "anchored-angles" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "anchored-angles" })}>同场景多机位</button>
+          </div></div>
+        </div>
+
         <label className="field-group compact-field">
           <span>产品 / 批次名称</span>
-          <input value={batch.name} onChange={event => onPatch({ name: event.target.value })} placeholder="例如：青柠气泡水夏季场景" />
+          <input value={batch.name} onChange={event => onPatch({ name: event.target.value, nameSource: "manual" })} placeholder="例如：青柠气泡水夏季场景" />
         </label>
 
         <label className="field-group">
@@ -146,9 +157,9 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
       </div>
     </div>
 
-    <button className="primary-button mobile-primary" onClick={onGenerate} disabled={loading}>
+    <button className="primary-button mobile-primary" onClick={onGenerate} disabled={loading || (batch.workflowMode === "automatic" && (!batch.styleReferenceImage || !batch.productReferenceImage))}>
       <Sparkles size={17} />
-      {loading ? "正在生成提示词" : `生成 ${batch.requestedPromptCount} 条提示词`}
+      {loading ? "正在处理" : batch.workflowMode === "automatic" ? `开始自动生成 ${batch.requestedPromptCount} 张` : batch.promptStrategy === "anchored-angles" ? "生成主场景" : `生成 ${batch.requestedPromptCount} 条提示词`}
     </button>
   </section>
 );

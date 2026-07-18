@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageGeneration } from "../domain/productWorkflow";
-import { runProductImageJobs } from "./productImageQueue";
+import { buildJobReferences, runProductImageJobs } from "./productImageQueue";
 
 const makeJob = (id: string): ImageGeneration => ({
   id,
@@ -50,5 +50,10 @@ describe("product image queue", () => {
     expect(result[0].status).toBe("completed");
     expect(result[1].status).toBe("failed");
     expect(result[1].error).toBe("渠道不可用");
+  });
+
+  it("orders product, master scene, then style references", () => {
+    const job = { ...makeJob("derived"), role: "derived" as const, anchorReferenceImageSnapshot: "data:image/png;base64,anchor" };
+    expect(buildJobReferences(job).map(item => item.name)).toEqual(["产品参考图", "主场景图", "风格参考图"]);
   });
 });

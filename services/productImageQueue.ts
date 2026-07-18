@@ -1,7 +1,18 @@
 import type { ImageGeneration } from "../domain/productWorkflow";
+import type { ReferenceImageItem } from "../types";
 
 export type ImageJobWorker = (job: ImageGeneration) => Promise<string>;
 export type ImageQueueUpdate = (jobs: ImageGeneration[]) => void;
+
+export const buildJobReferences = (job: ImageGeneration): ReferenceImageItem[] => [
+  { id: "product-reference", name: "产品参考图", imageData: job.productReferenceImageSnapshot },
+  ...(job.anchorReferenceImageSnapshot
+    ? [{ id: "anchor-reference", name: "主场景图", imageData: job.anchorReferenceImageSnapshot }]
+    : []),
+  ...(job.styleReferenceImageSnapshot
+    ? [{ id: "style-reference", name: "风格参考图", imageData: job.styleReferenceImageSnapshot }]
+    : [])
+];
 
 export const runProductImageJobs = async (
   inputJobs: ImageGeneration[],

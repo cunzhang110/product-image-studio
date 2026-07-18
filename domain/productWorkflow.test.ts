@@ -88,5 +88,7 @@ describe("product workflow", () => {
       { ...createImageJobs({ ...batch, prompts: [{ id: "b", prompt: "B", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }] })[0], status: "generating" }
     ];
     expect(getBatchDisplayStatus(batch)).toEqual({ tone: "blue", label: "生图中 1/2" });
+    batch.runPhase = "idle";
+    expect(getBatchDisplayStatus(batch)).toEqual({ tone: "blue", label: "生图中 1/2" });
   });
 });

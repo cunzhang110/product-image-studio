@@ -206,7 +206,8 @@ export const getBatchDisplayStatus = (batch: ProductBatch): BatchDisplayStatus =
   const total = batch.images.length;
   const completed = batch.images.filter(image => image.status === "completed").length;
   const failed = batch.images.filter(image => image.status === "failed").length;
-  if (batch.runPhase === "generating-images") return { tone: "blue", label: `生图中 ${completed}/${total}` };
+  const hasActiveImages = batch.images.some(image => ["queued", "generating"].includes(image.status));
+  if (batch.runPhase === "generating-images" || hasActiveImages) return { tone: "blue", label: `生图中 ${completed}/${total}` };
   if (total > 0 && completed === total) return { tone: "green", label: "已完成" };
   if (completed > 0 && failed > 0) return { tone: "orange", label: "部分完成" };
   if (batch.runPhase === "failed" || (total > 0 && failed === total)) return { tone: "red", label: "失败" };
