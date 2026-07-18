@@ -91,4 +91,10 @@ describe("product workflow", () => {
     batch.runPhase = "idle";
     expect(getBatchDisplayStatus(batch)).toEqual({ tone: "blue", label: "生图中 1/2" });
   });
+
+  it("shows a stopped batch as an orange resumable state", () => {
+    const batch = createProductBatch();
+    batch.runPhase = "stopped";
+    expect(getBatchDisplayStatus(batch)).toEqual({ tone: "orange", label: "已停止" });
+  });
 });

@@ -77,4 +77,26 @@ describe("product image queue", () => {
       "data:image/jpeg;base64,small-anchor"
     ]);
   });
+
+  it("preserves completed work and stops dispatching after cancellation", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const completed = { ...makeJob("done"), status: "completed" as const, resultUrl: "data:image/png;base64,done" };
+
+    const result = await runProductImageJobs(
+      [completed, makeJob("active"), makeJob("waiting")],
+      1,
+      async () => {
+        calls += 1;
+        controller.abort();
+        throw new DOMException("Stopped", "AbortError");
+      },
+      undefined,
+      controller.signal
+    );
+
+    expect(calls).toBe(1);
+    expect(result.map(job => job.status)).toEqual(["completed", "stopped", "stopped"]);
+    expect(result[0].resultUrl).toBe("data:image/png;base64,done");
+  });
 });

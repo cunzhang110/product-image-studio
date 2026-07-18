@@ -4,10 +4,10 @@ export const OPENROUTER_PROMPT_MODEL = "qwen/qwen3.5-9b";
 export type PromptProvider = "openrouter";
 export type BatchStage = "setup" | "review" | "results";
 export type PromptStatus = "ready" | "generating" | "failed";
-export type ImageJobStatus = "idle" | "queued" | "generating" | "completed" | "failed";
+export type ImageJobStatus = "idle" | "queued" | "generating" | "completed" | "failed" | "stopped";
 export type WorkflowMode = "manual" | "automatic";
 export type PromptStrategy = "varied-scenes" | "anchored-angles";
-export type BatchRunPhase = "idle" | "generating-prompts" | "generating-anchor" | "awaiting-anchor-approval" | "generating-images" | "completed" | "failed";
+export type BatchRunPhase = "idle" | "generating-prompts" | "generating-anchor" | "awaiting-anchor-approval" | "generating-images" | "completed" | "failed" | "stopped";
 export type BatchNameSource = "automatic" | "manual";
 export type ImageGenerationRole = "standard" | "anchor" | "derived";
 export type BatchStatusTone = "gray" | "purple" | "blue" | "orange" | "green" | "red";
@@ -200,6 +200,7 @@ export const applyProductReferenceFilename = (batch: ProductBatch, filename: str
 };
 
 export const getBatchDisplayStatus = (batch: ProductBatch): BatchDisplayStatus => {
+  if (batch.runPhase === "stopped") return { tone: "orange", label: "已停止" };
   if (batch.runPhase === "generating-prompts") return { tone: "purple", label: "生成提示词" };
   if (batch.runPhase === "generating-anchor") return { tone: "blue", label: "生成主场景" };
   if (batch.runPhase === "awaiting-anchor-approval") return { tone: "orange", label: "待确认主场景" };
