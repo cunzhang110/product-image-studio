@@ -209,4 +209,40 @@ describe("product batch workflow", () => {
     expect(completed.images[1].promptSnapshot).toContain(editedInstruction);
     expect(completed.images[1].anchorReferenceImageSnapshot).toBe(anchor.resultUrl);
   });
+
+  it("resumes custom branches from the latest node map and keeps unchanged completed work", async () => {
+    const nodes = createDefaultWineExtensionNodes().slice(0, 2);
+    const deps = dependencies();
+    deps.generatePromptPlan = async () => ({
+      strategy: "anchored-angles",
+      sceneBible: "固定婚宴桌面",
+      anchorPrompt: "主场景",
+      anglePrompts: []
+    });
+    const initial = await runAutomaticProductBatch(batchWithRefs({
+      workflowMode: "automatic",
+      promptStrategy: "anchored-angles",
+      sameSceneBranchMode: "custom-map",
+      extensionNodes: nodes
+    }), deps, vi.fn());
+    const editedInstruction = "右侧 30 度低机位酒瓶特写，标签正对镜头";
+    const stopped = {
+      ...initial,
+      runPhase: "stopped" as const,
+      extensionNodes: [nodes[0], { ...nodes[1], instruction: editedInstruction }],
+      images: initial.images.map((job, index) => index === 2
+        ? { ...job, status: "stopped" as const, resultUrl: undefined }
+        : job)
+    };
+    const runJobs = vi.fn(deps.runJobs);
+    deps.runJobs = runJobs;
+
+    const result = await resumeProductBatch(stopped, deps, vi.fn(), new AbortController().signal);
+
+    expect(runJobs.mock.calls[0][1]).toHaveLength(1);
+    expect(runJobs.mock.calls[0][1][0].promptSnapshot).toContain(editedInstruction);
+    expect(result.images[1].id).toBe(initial.images[1].id);
+    expect(result.images[1].resultUrl).toBe(initial.images[1].resultUrl);
+    expect(result.images[2].promptSnapshot).toContain(editedInstruction);
+  });
 });

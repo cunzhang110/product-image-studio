@@ -202,32 +202,55 @@ export const resumeProductBatch = async (
   }
 
   if (input.promptStrategy === "anchored-angles") {
-    const existingAnchor = input.images.find(image => image.role === "anchor" && image.status === "completed" && image.resultUrl);
+    const resumableInput = input.sameSceneBranchMode === "custom-map"
+      ? {
+        ...input,
+        prompts: promptsToVariants(buildCustomAnchoredPrompts(
+          input,
+          input.prompts[0]?.prompt || input.images.find(image => image.role === "anchor")?.promptSnapshot || "",
+          input.sceneBible
+        ))
+      }
+      : input;
+    const existingAnchor = resumableInput.images.find(image => image.role === "anchor" && image.status === "completed" && image.resultUrl);
     if (!existingAnchor) {
-      const anchorRun = await runAnchor(input, dependencies, onUpdate, signal);
+      const anchorRun = await runAnchor(resumableInput, dependencies, onUpdate, signal);
       if (anchorRun.anchor.status === "stopped" || signal?.aborted) return stoppedBatch(anchorRun.batch, onUpdate);
       if (anchorRun.anchor.status !== "completed" || !anchorRun.anchor.resultUrl) {
         return emit({ ...anchorRun.batch, runPhase: "failed", runError: anchorRun.anchor.error || "主场景生成失败" }, onUpdate);
       }
-      if (input.workflowMode === "manual") {
+      if (resumableInput.workflowMode === "manual") {
         return emit({ ...anchorRun.batch, runPhase: "awaiting-anchor-approval", stage: "results" }, onUpdate);
       }
       return resumeProductBatch({
-        ...input,
+        ...resumableInput,
         images: [anchorRun.anchor, ...anchorRun.derived],
         anchorImageId: anchorRun.anchor.id
       }, dependencies, onUpdate, signal);
     }
 
-    const generatedDerived = jobsForAnchoredBatch(input).slice(1);
-    const existingDerived = input.images.filter(image => image.role === "derived");
-    const derived = (existingDerived.length ? existingDerived : generatedDerived)
+    const generatedDerived = jobsForAnchoredBatch(resumableInput).slice(1);
+    const existingDerived = resumableInput.images.filter(image => image.role === "derived");
+    const reusableCompleted = new Map<string, ImageGeneration[]>();
+    existingDerived
+      .filter(image => image.status === "completed" && image.resultUrl)
+      .forEach(image => reusableCompleted.set(image.promptSnapshot, [
+        ...(reusableCompleted.get(image.promptSnapshot) || []),
+        image
+      ]));
+    const customDerived = generatedDerived.map(job => {
+      const reusable = reusableCompleted.get(job.promptSnapshot)?.shift();
+      return reusable || job;
+    });
+    const derived = (resumableInput.sameSceneBranchMode === "custom-map"
+      ? customDerived
+      : existingDerived.length ? existingDerived : generatedDerived)
       .map(job => ({ ...job, anchorReferenceImageSnapshot: existingAnchor.resultUrl }));
     const remaining = derived.filter(job => job.status !== "completed");
     const allJobs = [existingAnchor, ...derived];
-    if (!remaining.length) return finishFromJobs(input, allJobs, onUpdate);
+    if (!remaining.length) return finishFromJobs(resumableInput, allJobs, onUpdate);
 
-    let batch = emit({ ...input, images: allJobs, runPhase: "generating-images", stage: "results" }, onUpdate);
+    let batch = emit({ ...resumableInput, images: allJobs, runPhase: "generating-images", stage: "results" }, onUpdate);
     const completed = await dependencies.runJobs(batch, remaining, images => {
       batch = emit({ ...batch, images: [existingAnchor, ...mergeJobs(derived, images)] }, onUpdate);
     }, signal);
