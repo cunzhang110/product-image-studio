@@ -50,6 +50,18 @@ describe("product prompt request", () => {
     expect(plan.anchorPrompt).toBe("正面主场景");
   });
 
+  it("accepts a master-only anchored plan for custom branches", () => {
+    const request = buildProductPromptRequest({ ...baseInput, count: 1, strategy: "anchored-angles" });
+    const text = JSON.stringify(request.body);
+    expect(text).toContain("1 张主场景");
+    expect(text).toContain("0 个不同机位");
+    expect(parseAnchoredScenePlan(JSON.stringify({
+      sceneBible: "固定婚宴桌面",
+      anchorPrompt: "主场景",
+      anglePrompts: []
+    }), 1)).toEqual({ sceneBible: "固定婚宴桌面", anchorPrompt: "主场景", anglePrompts: [] });
+  });
+
   it("passes the workflow abort signal to the prompt request", async () => {
     const controller = new AbortController();
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({

@@ -186,7 +186,9 @@ const App: React.FC = () => {
     styleReferenceImage: batch.styleReferenceImage,
     promptTemplate: batch.promptTemplate,
     creativeGuide: batch.creativeGuide,
-    count: batch.requestedPromptCount,
+    count: batch.promptStrategy === "anchored-angles" && batch.sameSceneBranchMode === "custom-map"
+      ? 1
+      : batch.requestedPromptCount,
     strategy: batch.promptStrategy
   }, signal);
 
