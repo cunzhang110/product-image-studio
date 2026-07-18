@@ -25,6 +25,7 @@ import {
   applyProductReferenceFilename,
   getBatchDisplayStatus,
   getImageRunPhase,
+  getPlannedImageCount,
   promptsToVariants,
   type ImageGeneration,
   type ProductBatch
@@ -171,6 +172,11 @@ const App: React.FC = () => {
   const validatePromptInput = (batch: ProductBatch) => {
     if (!batch.styleReferenceImage) throw new Error("请先上传一张风格参考图");
     if (!batch.name.trim()) throw new Error("请填写产品或批次名称");
+    if (batch.promptStrategy === "anchored-angles" && batch.sameSceneBranchMode === "custom-map") {
+      if (!batch.extensionNodes.length) throw new Error("请至少添加一个延伸节点");
+      const emptyIndex = batch.extensionNodes.findIndex(node => !node.instruction.trim());
+      if (emptyIndex >= 0) throw new Error(`请填写第 ${emptyIndex + 1} 个延伸节点的指令`);
+    }
   };
 
   const requestPrompts = async (batch: ProductBatch, count: number, signal?: AbortSignal) => generateProductPrompts({
@@ -438,6 +444,7 @@ const App: React.FC = () => {
 
   const selectedPromptCount = activeBatch.prompts.filter(prompt => prompt.selected).length;
   const completedCount = activeBatch.images.filter(image => image.status === "completed").length;
+  const plannedImageCount = getPlannedImageCount(activeBatch);
   const generationActive = promptLoading || imageRunning || ["generating-prompts", "generating-anchor", "generating-images"].includes(activeBatch.runPhase);
 
   return (
@@ -492,7 +499,7 @@ const App: React.FC = () => {
           {activeBatch.stage === "setup" && (
             <ProductSetup
               batch={activeBatch}
-              loading={promptLoading}
+              loading={generationActive}
               onPatch={patchActiveBatch}
               onStyleImageSelected={async file => {
                 try {
@@ -565,14 +572,14 @@ const App: React.FC = () => {
             <div><span>风格参考图</span><strong>{activeBatch.styleReferenceImage ? "已绑定" : "未上传"}</strong></div>
             <div><span>产品参考图</span><strong>{activeBatch.productReferenceImage ? "已绑定" : "未上传"}</strong></div>
             <div><span>提示词</span><strong>{activeBatch.prompts.length} 条</strong></div>
-            <div><span>本次生图</span><strong>{selectedPromptCount} 张</strong></div>
+            <div><span>本次生图</span><strong>{activeBatch.stage === "setup" ? plannedImageCount : selectedPromptCount} 张</strong></div>
             <div><span>已完成</span><strong>{completedCount} 张</strong></div>
           </div>
 
           <div className="panel-actions">
             {generationActive && <button className="panel-primary panel-danger" onClick={handleStopGeneration}><Square size={16} fill="currentColor" />停止生成</button>}
             {!generationActive && activeBatch.runPhase === "stopped" && <button className="panel-primary" onClick={handleResumeGeneration}><WandSparkles size={17} />继续剩余任务</button>}
-            {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "setup" && <button className="panel-primary" disabled={activeBatch.workflowMode === "automatic" && (!activeBatch.styleReferenceImage || !activeBatch.productReferenceImage)} onClick={handleSetupStart}><Sparkles size={17} />{activeBatch.workflowMode === "automatic" ? `开始自动生成 ${activeBatch.requestedPromptCount} 张` : activeBatch.promptStrategy === "anchored-angles" ? "生成主场景" : "生成提示词"}</button>}
+            {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "setup" && <button className="panel-primary" disabled={activeBatch.workflowMode === "automatic" && (!activeBatch.styleReferenceImage || !activeBatch.productReferenceImage)} onClick={handleSetupStart}><Sparkles size={17} />{activeBatch.workflowMode === "automatic" ? `开始自动生成 ${plannedImageCount} 张` : activeBatch.promptStrategy === "anchored-angles" ? "生成主场景" : "生成提示词"}</button>}
             {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "review" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" onClick={handleContinueAnchor}><WandSparkles size={17} />确认主场景并继续</button>}
             {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "review" && activeBatch.runPhase !== "awaiting-anchor-approval" && <button className="panel-primary" disabled={selectedPromptCount === 0} onClick={handleGenerateImages}><WandSparkles size={17} />生成已选 {selectedPromptCount} 张</button>}
             {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "results" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" onClick={handleContinueAnchor}><WandSparkles size={17} />确认主场景并继续</button>}

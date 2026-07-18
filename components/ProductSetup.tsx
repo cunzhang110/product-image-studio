@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { ImagePlus, PackageCheck, Palette, Sparkles, Upload, X } from "lucide-react";
-import type { ProductBatch } from "../domain/productWorkflow";
+import { createDefaultWineExtensionNodes, getPlannedImageCount, type ProductBatch } from "../domain/productWorkflow";
+import { SceneExtensionEditor } from "./SceneExtensionEditor";
 
 interface ProductSetupProps {
   batch: ProductBatch;
@@ -66,7 +67,20 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
   onStyleImageSelected,
   onProductImageSelected,
   onGenerate
-}) => (
+}) => {
+  const customMap = batch.promptStrategy === "anchored-angles" && batch.sameSceneBranchMode === "custom-map";
+  const plannedCount = getPlannedImageCount(batch);
+  const actionLabel = loading
+    ? "正在处理"
+    : batch.workflowMode === "automatic"
+      ? `开始自动生成 ${plannedCount} 张`
+      : batch.promptStrategy === "anchored-angles" ? "生成主场景" : `生成 ${plannedCount} 条提示词`;
+  const useCustomMap = () => onPatch({
+    sameSceneBranchMode: "custom-map",
+    extensionNodes: batch.extensionNodes.length ? batch.extensionNodes : createDefaultWineExtensionNodes()
+  });
+
+  return (
   <section className="workspace-section setup-section">
     <div className="section-heading">
       <div>
@@ -76,7 +90,7 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
       </div>
       <button className="primary-button desktop-primary" onClick={onGenerate} disabled={loading || (batch.workflowMode === "automatic" && (!batch.styleReferenceImage || !batch.productReferenceImage))}>
         <Sparkles size={17} />
-        {loading ? "正在处理" : batch.workflowMode === "automatic" ? `开始自动生成 ${batch.requestedPromptCount} 张` : batch.promptStrategy === "anchored-angles" ? "生成主场景" : `生成 ${batch.requestedPromptCount} 条提示词`}
+        {actionLabel}
       </button>
     </div>
 
@@ -115,6 +129,15 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
           </div></div>
         </div>
 
+        {batch.promptStrategy === "anchored-angles" && <div className="field-group branch-mode-field">
+          <span>同场景延伸方式</span>
+          <div className="segment-control two">
+            <button className={batch.sameSceneBranchMode === "ai-random" ? "active" : ""} onClick={() => onPatch({ sameSceneBranchMode: "ai-random" })}>AI 随机延伸</button>
+            <button className={batch.sameSceneBranchMode === "custom-map" ? "active" : ""} onClick={useCustomMap}>自定义思维导图</button>
+          </div>
+          <small>{batch.sameSceneBranchMode === "ai-random" ? "AI 根据主场景自动规划不同机位。" : "每个节点控制一张分支图，可指定机位、产品动作或两者同时变化。"}</small>
+        </div>}
+
         <label className="field-group compact-field">
           <span>产品 / 批次名称</span>
           <input value={batch.name} onChange={event => onPatch({ name: event.target.value, nameSource: "manual" })} placeholder="例如：青柠气泡水夏季场景" />
@@ -140,7 +163,13 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
           <small>Qwen 会结合风格参考图，将这里的要求扩展为一批提示词。</small>
         </label>
 
-        <label className="field-group count-field">
+        {customMap && <SceneExtensionEditor
+          nodes={batch.extensionNodes}
+          disabled={loading}
+          onChange={extensionNodes => onPatch({ extensionNodes })}
+        />}
+
+        {!customMap && <label className="field-group count-field">
           <span>提示词数量</span>
           <div className="count-control">
             <button onClick={() => onPatch({ requestedPromptCount: Math.max(1, batch.requestedPromptCount - 1) })}>−</button>
@@ -153,13 +182,14 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
             />
             <button onClick={() => onPatch({ requestedPromptCount: Math.min(50, batch.requestedPromptCount + 1) })}>+</button>
           </div>
-        </label>
+        </label>}
       </div>
     </div>
 
     <button className="primary-button mobile-primary" onClick={onGenerate} disabled={loading || (batch.workflowMode === "automatic" && (!batch.styleReferenceImage || !batch.productReferenceImage))}>
       <Sparkles size={17} />
-      {loading ? "正在处理" : batch.workflowMode === "automatic" ? `开始自动生成 ${batch.requestedPromptCount} 张` : batch.promptStrategy === "anchored-angles" ? "生成主场景" : `生成 ${batch.requestedPromptCount} 条提示词`}
+      {actionLabel}
     </button>
   </section>
-);
+  );
+};

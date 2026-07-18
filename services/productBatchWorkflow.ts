@@ -29,7 +29,7 @@ const preparePrompts = (batch: ProductBatch, plan: ProductPromptPlan) => {
   return {
     ...batch,
     sceneBible: plan.strategy === "anchored-angles" ? plan.sceneBible : "",
-    prompts: promptsToVariants(batch.sameSceneBranchMode === "custom-map"
+    prompts: promptsToVariants(plan.strategy === "anchored-angles" && batch.sameSceneBranchMode === "custom-map"
       ? texts
       : texts.slice(0, batch.requestedPromptCount))
   };
