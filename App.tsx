@@ -22,19 +22,13 @@ import {
   createProductBatch,
   promptsToVariants,
   type ImageGeneration,
-  type ProductBatch,
-  type PromptProvider
+  type ProductBatch
 } from "./domain/productWorkflow";
 import { generateImage } from "./services/geminiService";
 import { runProductImageJobs } from "./services/productImageQueue";
 import { generateProductPrompts } from "./services/productPromptService";
 import type { ImageSize, ServiceProvider } from "./types";
 import { loadProductBatchesFromDB, saveProductBatchesToDB } from "./utils/db";
-
-const PROMPT_MODELS: Record<PromptProvider, string> = {
-  yunwu: "gemini-3-pro-preview",
-  apimart: "gemini-2.5-pro"
-};
 
 const IMAGE_MODELS: Record<ServiceProvider, string> = {
   yunwu: "gemini-3.1-flash-image-preview",
@@ -157,8 +151,6 @@ const App: React.FC = () => {
   };
 
   const requestPrompts = async (batch: ProductBatch, count: number) => generateProductPrompts({
-    provider: batch.promptProvider,
-    model: batch.promptModel,
     productName: batch.name,
     referenceImage: batch.referenceImage,
     promptTemplate: batch.promptTemplate,
@@ -176,8 +168,7 @@ const App: React.FC = () => {
       showToast(`已生成 ${prompts.length} 条提示词，确认后再开始生图`, "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : "提示词生成失败";
-      if (message.includes("API_KEY")) setSettingsOpen(true);
-      showToast(message === "API_KEY_MISSING" ? "请先配置提示词 AI 的 API Key" : message, "error");
+      showToast(message, "error");
     } finally {
       setPromptLoading(false);
     }
@@ -385,12 +376,8 @@ const App: React.FC = () => {
 
           <div className="setting-group">
             <label>提示词 AI</label>
-            <div className="segment-control two">
-              {(["yunwu", "apimart"] as PromptProvider[]).map(provider => (
-                <button key={provider} className={activeBatch.promptProvider === provider ? "active" : ""} onClick={() => patchActiveBatch({ promptProvider: provider, promptModel: PROMPT_MODELS[provider] })}>{PROVIDER_LABELS[provider]}</button>
-              ))}
-            </div>
-            <div className="model-line"><Sparkles size={13} /><span>{activeBatch.promptModel}</span></div>
+            <div className="fixed-provider"><Sparkles size={15} /><span><strong>OpenRouter</strong><small>Gemma 4 · 31B · 免费模型</small></span></div>
+            <div className="model-line"><span>{activeBatch.promptModel}</span></div>
           </div>
 
           <div className="setting-group">

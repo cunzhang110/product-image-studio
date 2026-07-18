@@ -10,28 +10,12 @@ const baseInput = {
 };
 
 describe("product prompt request", () => {
-  it("includes the product image as Gemini inline data", () => {
-    const request = buildProductPromptRequest({
-      ...baseInput,
-      provider: "yunwu",
-      model: "gemini-3-pro-preview"
-    });
+  it("uses the fixed OpenRouter Gemma model with the product image", () => {
+    const request = buildProductPromptRequest(baseInput);
 
-    expect(request.path).toContain("gemini-3-pro-preview:generateContent");
+    expect(request.path).toBe("/api/openrouter/chat/completions");
     const body = request.body as any;
-    expect(body.contents[0].parts[0].inline_data).toEqual({ mime_type: "image/png", data: "YWJj" });
-    expect(body.contents[0].parts[1].text).toContain("8 条");
-  });
-
-  it("includes the product image in OpenAI compatible content", () => {
-    const request = buildProductPromptRequest({
-      ...baseInput,
-      provider: "apimart",
-      model: "gemini-2.5-pro"
-    });
-
-    expect(request.path).toBe("/api/v1/chat/completions");
-    const body = request.body as any;
+    expect(body.model).toBe("google/gemma-4-31b-it:free");
     expect(body.messages[1].content[0]).toEqual({
       type: "image_url",
       image_url: { url: baseInput.referenceImage }
@@ -39,11 +23,8 @@ describe("product prompt request", () => {
     expect(body.messages[1].content[1].text).toContain("8 条");
   });
 
-  it("rejects Muzhi as a prompt provider", () => {
-    expect(() => buildProductPromptRequest({
-      ...baseInput,
-      provider: "muzhi" as any,
-      model: "gpt-image-2"
-    })).toThrow("Muzhi 暂不用于生成提示词");
+  it("requires a product reference image", () => {
+    expect(() => buildProductPromptRequest({ ...baseInput, referenceImage: "" }))
+      .toThrow("请先上传产品参考图");
   });
 });

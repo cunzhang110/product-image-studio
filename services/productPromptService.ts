@@ -1,11 +1,6 @@
-import type { PromptProvider } from "../domain/productWorkflow";
-import { parsePromptList } from "../domain/productWorkflow";
-import type { ServiceProvider } from "../types";
-import { requestProviderJson } from "./geminiService";
+import { OPENROUTER_PROMPT_MODEL, parsePromptList } from "../domain/productWorkflow";
 
 export interface ProductPromptInput {
-  provider: PromptProvider;
-  model: string;
   productName: string;
   referenceImage: string;
   promptTemplate: string;
@@ -14,15 +9,8 @@ export interface ProductPromptInput {
 }
 
 type PromptRequest = {
-  provider: ServiceProvider;
   path: string;
   body: Record<string, unknown>;
-};
-
-const splitDataUrl = (dataUrl: string) => {
-  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) throw new Error("产品参考图格式无效，请重新上传。");
-  return { mimeType: match[1], data: match[2] };
 };
 
 const buildPromptInstruction = (input: ProductPromptInput) => [
@@ -36,73 +24,48 @@ const buildPromptInstruction = (input: ProductPromptInput) => [
 ].join("\n");
 
 export const buildProductPromptRequest = (input: ProductPromptInput): PromptRequest => {
-  if ((input.provider as ServiceProvider) === "muzhi") {
-    throw new Error("Muzhi 暂不用于生成提示词，请选择云雾或 APIMart。");
-  }
   if (!input.referenceImage) throw new Error("请先上传产品参考图。");
-  const instruction = buildPromptInstruction(input);
-
-  if (input.provider === "apimart") {
-    return {
-      provider: "apimart",
-      path: "/api/v1/chat/completions",
-      body: {
-        model: input.model,
-        temperature: 0.8,
-        messages: [
-          {
-            role: "system",
-            content: "你是商业产品摄影提示词策划师。严格保持参考产品一致，只输出 JSON 字符串数组。"
-          },
-          {
-            role: "user",
-            content: [
-              { type: "image_url", image_url: { url: input.referenceImage } },
-              { type: "text", text: instruction }
-            ]
-          }
-        ]
-      }
-    };
-  }
-
-  const image = splitDataUrl(input.referenceImage);
   return {
-    provider: "yunwu",
-    path: `/v1beta/models/${encodeURIComponent(input.model)}:generateContent`,
+    path: "/api/openrouter/chat/completions",
     body: {
-      systemInstruction: {
-        parts: [{ text: "你是商业产品摄影提示词策划师。严格保持参考产品一致，只输出 JSON 字符串数组。" }]
-      },
-      contents: [{
-        role: "user",
-        parts: [
-          { inline_data: { mime_type: image.mimeType, data: image.data } },
-          { text: instruction }
-        ]
-      }],
-      generationConfig: { temperature: 0.8, responseMimeType: "application/json" }
+      model: OPENROUTER_PROMPT_MODEL,
+      temperature: 0.8,
+      messages: [
+        {
+          role: "system",
+          content: "你是商业产品摄影提示词策划师。严格保持参考产品一致，只输出 JSON 字符串数组。"
+        },
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: input.referenceImage } },
+            { type: "text", text: buildPromptInstruction(input) }
+          ]
+        }
+      ]
     }
   };
 };
 
-const extractResponseText = (provider: PromptProvider, response: any) => {
-  if (provider === "apimart") {
-    const content = response?.choices?.[0]?.message?.content;
-    if (typeof content === "string") return content;
-    if (Array.isArray(content)) return content.map(item => item?.text || "").join("\n");
-    return "";
-  }
-  return (response?.candidates?.[0]?.content?.parts || []).map((part: any) => part?.text || "").join("\n");
+const extractResponseText = (response: any) => {
+  const content = response?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map(item => item?.text || "").join("\n");
+  return "";
 };
 
 export const generateProductPrompts = async (input: ProductPromptInput): Promise<string[]> => {
   const request = buildProductPromptRequest(input);
-  const response = await requestProviderJson<any>(request.provider, request.path, {
+  const response = await fetch(request.path, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request.body)
   });
-  const prompts = parsePromptList(extractResponseText(input.provider, response));
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error?.message || data?.message || `提示词服务请求失败 (${response.status})`);
+  }
+  const prompts = parsePromptList(extractResponseText(data));
   if (!prompts.length) throw new Error("提示词 AI 没有返回可用内容，请重试。");
   return prompts.slice(0, Math.max(1, input.count));
 };

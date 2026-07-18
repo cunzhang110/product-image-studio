@@ -1,4 +1,4 @@
-import type { ProductBatch } from "../domain/productWorkflow";
+import { normalizeProductBatch, type ProductBatch } from "../domain/productWorkflow";
 
 export const initDB = () => {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -37,7 +37,7 @@ export const loadProductBatchesFromDB = async (): Promise<ProductBatch[]> => {
   return new Promise<ProductBatch[]>((resolve, reject) => {
     const tx = db.transaction('productBatches', 'readonly');
     const request = tx.objectStore('productBatches').getAll();
-    request.onsuccess = () => resolve(request.result as ProductBatch[]);
+    request.onsuccess = () => resolve((request.result as ProductBatch[]).map(normalizeProductBatch));
     request.onerror = () => reject(request.error);
   });
 };

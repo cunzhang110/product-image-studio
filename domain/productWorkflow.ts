@@ -1,6 +1,7 @@
 import type { AspectRatio, ImageSize, ServiceProvider } from "../types";
 
-export type PromptProvider = Exclude<ServiceProvider, "muzhi">;
+export const OPENROUTER_PROMPT_MODEL = "google/gemma-4-31b-it:free";
+export type PromptProvider = "openrouter";
 export type BatchStage = "setup" | "review" | "results";
 export type PromptStatus = "ready" | "generating" | "failed";
 export type ImageJobStatus = "idle" | "queued" | "generating" | "completed" | "failed";
@@ -68,8 +69,8 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
     promptTemplate: "",
     creativeGuide: "",
     requestedPromptCount: 12,
-    promptProvider: "yunwu",
-    promptModel: "gemini-3-pro-preview",
+    promptProvider: "openrouter",
+    promptModel: OPENROUTER_PROMPT_MODEL,
     imageProvider: "yunwu",
     imageModel: "gemini-3.1-flash-image-preview",
     aspectRatio: "3:4",
@@ -82,6 +83,12 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
     updatedAt: now
   };
 };
+
+export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => ({
+  ...batch,
+  promptProvider: "openrouter",
+  promptModel: OPENROUTER_PROMPT_MODEL
+});
 
 const normalizePromptList = (items: unknown[]) => {
   const seen = new Set<string>();

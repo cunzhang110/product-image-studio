@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createImageJobs, createProductBatch, parsePromptList } from "./productWorkflow";
+import { createImageJobs, createProductBatch, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
   it("creates a single-reference product batch", () => {
@@ -8,6 +8,21 @@ describe("product workflow", () => {
     expect(batch.name).toBe("新品饮料");
     expect(batch.referenceImage).toBe("");
     expect(batch.prompts).toEqual([]);
+    expect(batch.promptProvider).toBe("openrouter");
+    expect(batch.promptModel).toBe("google/gemma-4-31b-it:free");
+  });
+
+  it("migrates persisted prompt settings to the fixed OpenRouter model", () => {
+    const legacy = {
+      ...createProductBatch("旧批次"),
+      promptProvider: "yunwu",
+      promptModel: "gemini-3-pro-preview"
+    } as any;
+
+    expect(normalizeProductBatch(legacy)).toMatchObject({
+      promptProvider: "openrouter",
+      promptModel: "google/gemma-4-31b-it:free"
+    });
   });
 
   it("parses a JSON prompt array and removes empty duplicates", () => {

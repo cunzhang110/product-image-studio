@@ -25,30 +25,32 @@ with sync_playwright() as playwright:
     desktop = browser.new_page()
     desktop.add_init_script("localStorage.setItem('yunwu_api_key', 'test-key')")
 
-    def mock_yunwu(route):
-        if "gemini-3-pro-preview" in route.request.url:
-            body = {
-                "candidates": [{
-                    "content": {
-                        "parts": [{"text": '["窗边自然光产品特写", "户外野餐桌面场景", "人物手持产品近景"]'}]
-                    }
-                }]
-            }
-        else:
-            body = {
-                "candidates": [{
-                    "content": {
-                        "parts": [{
-                            "inlineData": {
-                                "mimeType": "image/png",
-                                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-                            }
-                        }]
-                    }
-                }]
-            }
+    def mock_openrouter(route):
+        body = {
+            "choices": [{
+                "message": {
+                    "content": '["窗边自然光产品特写", "户外野餐桌面场景", "人物手持产品近景"]'
+                }
+            }]
+        }
         route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
+    def mock_yunwu(route):
+        body = {
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "inlineData": {
+                            "mimeType": "image/png",
+                            "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+                        }
+                    }]
+                }
+            }]
+        }
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    desktop.route("**/api/openrouter/chat/completions", mock_openrouter)
     desktop.route("https://yunwu.ai/**", mock_yunwu)
     verify_page(desktop, 1440, 960, "/tmp/product-studio-desktop.png")
     desktop.get_by_role("button", name="API 连接").click()

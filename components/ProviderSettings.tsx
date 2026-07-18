@@ -10,8 +10,8 @@ interface ProviderSettingsProps {
 }
 
 const providers: Array<{ id: ServiceProvider; label: string; note: string }> = [
-  { id: "yunwu", label: "云雾 API", note: "提示词 AI + 香蕉生图模型" },
-  { id: "apimart", label: "APIMart", note: "提示词 AI + GPT Image 2" },
+  { id: "yunwu", label: "云雾 API", note: "香蕉生图模型" },
+  { id: "apimart", label: "APIMart", note: "GPT Image 2 生图模型" },
   { id: "muzhi", label: "Muzhi", note: "GPT Image 2，生产密钥由服务器管理" }
 ];
 
@@ -32,6 +32,10 @@ export const ProviderSettings: React.FC<ProviderSettingsProps> = ({ open, onClos
           <button className="icon-button" onClick={onClose}><X size={17} /></button>
         </div>
         <div className="provider-key-list">
+          <div className="provider-key-row">
+            <span><strong>OpenRouter</strong><small>Gemma 4 31B 提示词模型，密钥由服务器管理</small></span>
+            <div className="server-key-state"><span className="status-dot" />服务器已配置</div>
+          </div>
           {providers.map(provider => (
             <label key={provider.id} className="provider-key-row">
               <span><strong>{provider.label}</strong><small>{provider.note}</small></span>
