@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProductPromptRequest } from "./productPromptService";
+import { buildProductPromptRequest, parseAnchoredScenePlan } from "./productPromptService";
 
 const baseInput = {
   productName: "青柠气泡水",
@@ -28,5 +28,23 @@ describe("product prompt request", () => {
   it("requires a style reference image", () => {
     expect(() => buildProductPromptRequest({ ...baseInput, styleReferenceImage: "" }))
       .toThrow("请先上传风格参考图");
+  });
+
+  it("requests one master scene and count minus one camera variants", () => {
+    const request = buildProductPromptRequest({ ...baseInput, count: 6, strategy: "anchored-angles" });
+    const text = JSON.stringify(request.body);
+    expect(text).toContain("1 张主场景");
+    expect(text).toContain("5 个不同机位");
+    expect(text).toContain("sceneBible");
+  });
+
+  it("parses a complete anchored scene plan", () => {
+    const plan = parseAnchoredScenePlan(JSON.stringify({
+      sceneBible: "白色桌布、香槟塔、右侧暖光",
+      anchorPrompt: "正面主场景",
+      anglePrompts: ["左前方 45 度", "低机位近景"]
+    }), 3);
+    expect(plan.anglePrompts).toHaveLength(2);
+    expect(plan.anchorPrompt).toBe("正面主场景");
   });
 });
