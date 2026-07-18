@@ -826,6 +826,10 @@ export const generateImage = async (
       throw createError("API 频率达到上限 (429)，请降低并发并稍后再试。");
     }
 
+    if (message.includes("FUNCTION_PAYLOAD_TOO_LARGE") || message.includes("Request Entity Too Large")) {
+      throw createError("参考图数据过大，未能提交到生图服务。请刷新页面后重试该任务。");
+    }
+
     if (message.includes("无可用渠道")) {
       throw createError(`${providerConfig.label} 当前账号下模型 ${imageModel} 没有可用通道。请到后台检查该模型是否已开通，或改用供应商给你的可用模型名。`);
     }

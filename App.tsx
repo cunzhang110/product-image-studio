@@ -28,7 +28,7 @@ import {
   type ProductBatch
 } from "./domain/productWorkflow";
 import { generateImage } from "./services/geminiService";
-import { buildJobReferences, runProductImageJobs } from "./services/productImageQueue";
+import { prepareJobReferencesForRequest, runProductImageJobs } from "./services/productImageQueue";
 import { generateProductPromptPlan, generateProductPrompts } from "./services/productPromptService";
 import { continueManualAnchoredBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./services/productBatchWorkflow";
 import type { ImageSize, ServiceProvider } from "./types";
@@ -169,7 +169,7 @@ const App: React.FC = () => {
   });
 
   const generateJobImage = async (job: ImageGeneration) => {
-    const references = buildJobReferences(job);
+    const references = await prepareJobReferencesForRequest(job);
     const referencePrompt = [
       "@{产品参考图} 是最高优先级主体约束，必须完全保持产品外观、包装、Logo、文字和结构一致。",
       job.anchorReferenceImageSnapshot ? "@{主场景图} 锁定环境、布景、道具、光线和产品位置，只改变提示词指定的机位。" : "",

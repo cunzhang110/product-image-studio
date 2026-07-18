@@ -1,5 +1,6 @@
 import type { ImageGeneration } from "../domain/productWorkflow";
 import type { ReferenceImageItem } from "../types";
+import { optimizeReferenceImageDataUrl } from "../utils/referenceImageOptimization";
 
 export type ImageJobWorker = (job: ImageGeneration) => Promise<string>;
 export type ImageQueueUpdate = (jobs: ImageGeneration[]) => void;
@@ -13,6 +14,18 @@ export const buildJobReferences = (job: ImageGeneration): ReferenceImageItem[] =
     ? [{ id: "style-reference", name: "风格参考图", imageData: job.styleReferenceImageSnapshot }]
     : [])
 ];
+
+export const prepareJobReferencesForRequest = async (
+  job: ImageGeneration,
+  optimize: (dataUrl: string) => Promise<string> = optimizeReferenceImageDataUrl
+): Promise<ReferenceImageItem[]> => {
+  const references = buildJobReferences(job);
+  if (!job.anchorReferenceImageSnapshot) return references;
+  const optimizedAnchor = await optimize(job.anchorReferenceImageSnapshot);
+  return references.map(reference => reference.id === "anchor-reference"
+    ? { ...reference, imageData: optimizedAnchor }
+    : reference);
+};
 
 export const runProductImageJobs = async (
   inputJobs: ImageGeneration[],
