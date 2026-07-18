@@ -474,7 +474,8 @@ const App: React.FC = () => {
           </div>
 
           {activeBatch.stage === "setup" && <button className="panel-primary" disabled={promptLoading || imageRunning || (activeBatch.workflowMode === "automatic" && (!activeBatch.styleReferenceImage || !activeBatch.productReferenceImage))} onClick={handleSetupStart}><Sparkles size={17} />{promptLoading || imageRunning ? "正在处理" : activeBatch.workflowMode === "automatic" ? `开始自动生成 ${activeBatch.requestedPromptCount} 张` : activeBatch.promptStrategy === "anchored-angles" ? "生成主场景" : "生成提示词"}</button>}
-          {activeBatch.stage === "review" && <button className="panel-primary" disabled={imageRunning || selectedPromptCount === 0} onClick={handleGenerateImages}><WandSparkles size={17} />{imageRunning ? "正在批量生图" : `生成已选 ${selectedPromptCount} 张`}</button>}
+          {activeBatch.stage === "review" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" disabled={imageRunning} onClick={handleContinueAnchor}><WandSparkles size={17} />{imageRunning ? "正在生成其余机位" : "确认主场景并继续"}</button>}
+          {activeBatch.stage === "review" && activeBatch.runPhase !== "awaiting-anchor-approval" && <button className="panel-primary" disabled={imageRunning || selectedPromptCount === 0} onClick={handleGenerateImages}><WandSparkles size={17} />{imageRunning ? "正在批量生图" : `生成已选 ${selectedPromptCount} 张`}</button>}
           {activeBatch.stage === "results" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" disabled={imageRunning} onClick={handleContinueAnchor}><WandSparkles size={17} />{imageRunning ? "正在生成其余机位" : "确认主场景并继续"}</button>}
           {activeBatch.stage === "results" && activeBatch.runPhase !== "awaiting-anchor-approval" && <button className="panel-primary" onClick={downloadBatch}><Download size={17} />打包下载 {completedCount} 张</button>}
         </aside>
