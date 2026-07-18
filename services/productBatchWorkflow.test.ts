@@ -1,0 +1,55 @@
+import { describe, expect, it, vi } from "vitest";
+import { createProductBatch, type ImageGeneration, type ProductBatch } from "../domain/productWorkflow";
+import { continueManualAnchoredBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./productBatchWorkflow";
+
+const batchWithRefs = (patch: Partial<ProductBatch> = {}) => ({
+  ...createProductBatch("产品"),
+  productReferenceImage: "data:image/png;base64,product",
+  styleReferenceImage: "data:image/png;base64,style",
+  requestedPromptCount: 3,
+  ...patch
+});
+
+const dependencies = (): ProductBatchWorkflowDependencies => ({
+  generatePromptPlan: async batch => batch.promptStrategy === "anchored-angles"
+    ? { strategy: "anchored-angles", sceneBible: "固定婚宴桌面", anchorPrompt: "主场景", anglePrompts: ["第二机位", "第三机位"] }
+    : { strategy: "varied-scenes", prompts: ["场景一", "场景二", "场景三"] },
+  runJobs: async (_batch, jobs, onJobs) => {
+    const completed = jobs.map(job => ({ ...job, status: "completed" as const, resultUrl: `data:image/png;base64,${job.role}-${job.id}` }));
+    onJobs(completed);
+    return completed;
+  }
+});
+
+describe("product batch workflow", () => {
+  it("runs automatic varied scenes through final images", async () => {
+    const result = await runAutomaticProductBatch(batchWithRefs({ workflowMode: "automatic" }), dependencies(), vi.fn());
+    expect(result.prompts).toHaveLength(3);
+    expect(result.images).toHaveLength(3);
+    expect(result.runPhase).toBe("completed");
+  });
+
+  it("counts the anchor as image one and shares it with derived jobs", async () => {
+    const result = await runAutomaticProductBatch(batchWithRefs({ workflowMode: "automatic", promptStrategy: "anchored-angles" }), dependencies(), vi.fn());
+    expect(result.images).toHaveLength(3);
+    expect(result.images[0].role).toBe("anchor");
+    expect(result.images.slice(1).every(job => job.anchorReferenceImageSnapshot === result.images[0].resultUrl)).toBe(true);
+  });
+
+  it("manual anchored mode pauses after the anchor and continues on approval", async () => {
+    const paused = await startManualAnchoredBatch(batchWithRefs({ promptStrategy: "anchored-angles" }), dependencies(), vi.fn());
+    expect(paused.runPhase).toBe("awaiting-anchor-approval");
+    expect(paused.images).toHaveLength(1);
+    const completed = await continueManualAnchoredBatch(paused, dependencies(), vi.fn());
+    expect(completed.images).toHaveLength(3);
+    expect(completed.runPhase).toBe("completed");
+  });
+
+  it("stops when the anchor fails", async () => {
+    const deps = dependencies();
+    deps.runJobs = async (_batch, jobs) => jobs.map(job => ({ ...job, status: "failed", error: "主场景失败" })) as ImageGeneration[];
+    const result = await runAutomaticProductBatch(batchWithRefs({ workflowMode: "automatic", promptStrategy: "anchored-angles" }), deps, vi.fn());
+    expect(result.runPhase).toBe("failed");
+    expect(result.images).toHaveLength(1);
+  });
+});
