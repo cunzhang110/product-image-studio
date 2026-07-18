@@ -58,15 +58,14 @@ describe("product image queue", () => {
   });
 
   it("creates a lightweight master-scene snapshot before a derived request", async () => {
-    const job = { ...makeJob("derived"), role: "derived" as const, anchorReferenceImageSnapshot: "data:image/png;base64,very-large-anchor" };
+    const job = { ...makeJob("derived"), provider: "muzhi" as const, model: "gpt-image-2", role: "derived" as const, anchorReferenceImageSnapshot: "data:image/png;base64,very-large-anchor" };
     const optimize = async (image: string) => image.includes("very-large-anchor")
       ? "data:image/jpeg;base64,small-anchor"
       : image;
     const references = await prepareJobReferencesForRequest(job, optimize);
     expect(references.map(item => item.imageData)).toEqual([
       job.productReferenceImageSnapshot,
-      "data:image/jpeg;base64,small-anchor",
-      job.styleReferenceImageSnapshot
+      "data:image/jpeg;base64,small-anchor"
     ]);
   });
 });

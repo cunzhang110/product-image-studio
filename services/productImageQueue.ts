@@ -22,7 +22,9 @@ export const prepareJobReferencesForRequest = async (
   const references = buildJobReferences(job);
   if (!job.anchorReferenceImageSnapshot) return references;
   const optimizedAnchor = await optimize(job.anchorReferenceImageSnapshot);
-  return references.map(reference => reference.id === "anchor-reference"
+  return references
+    .filter(reference => !(job.provider === "muzhi" && reference.id === "style-reference"))
+    .map(reference => reference.id === "anchor-reference"
     ? { ...reference, imageData: optimizedAnchor }
     : reference);
 };
