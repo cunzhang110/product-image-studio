@@ -5,6 +5,17 @@ export type PromptProvider = "openrouter";
 export type BatchStage = "setup" | "review" | "results";
 export type PromptStatus = "ready" | "generating" | "failed";
 export type ImageJobStatus = "idle" | "queued" | "generating" | "completed" | "failed";
+export type WorkflowMode = "manual" | "automatic";
+export type PromptStrategy = "varied-scenes" | "anchored-angles";
+export type BatchRunPhase = "idle" | "generating-prompts" | "generating-anchor" | "awaiting-anchor-approval" | "generating-images" | "completed" | "failed";
+export type BatchNameSource = "automatic" | "manual";
+export type ImageGenerationRole = "standard" | "anchor" | "derived";
+export type BatchStatusTone = "gray" | "purple" | "blue" | "orange" | "green" | "red";
+
+export interface BatchDisplayStatus {
+  tone: BatchStatusTone;
+  label: string;
+}
 
 export interface PromptVariant {
   id: string;
@@ -23,6 +34,8 @@ export interface ImageGeneration {
   promptSnapshot: string;
   productReferenceImageSnapshot: string;
   styleReferenceImageSnapshot: string;
+  anchorReferenceImageSnapshot?: string;
+  role: ImageGenerationRole;
   referenceImageSnapshot?: string;
   provider: ServiceProvider;
   model: string;
@@ -37,6 +50,7 @@ export interface ImageGeneration {
 export interface ProductBatch {
   id: string;
   name: string;
+  nameSource: BatchNameSource;
   productReferenceImage: string;
   styleReferenceImage: string;
   referenceImage?: string;
@@ -50,6 +64,12 @@ export interface ProductBatch {
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
   concurrency: number;
+  workflowMode: WorkflowMode;
+  promptStrategy: PromptStrategy;
+  runPhase: BatchRunPhase;
+  runError?: string;
+  sceneBible: string;
+  anchorImageId?: string;
   stage: BatchStage;
   prompts: PromptVariant[];
   images: ImageGeneration[];
@@ -69,6 +89,7 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
   return {
     id: createId(),
     name: name.trim() || "未命名产品",
+    nameSource: "automatic",
     productReferenceImage: "",
     styleReferenceImage: "",
     promptTemplate: "",
@@ -81,6 +102,10 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
     aspectRatio: "3:4",
     imageSize: "2K",
     concurrency: 1,
+    workflowMode: "manual",
+    promptStrategy: "varied-scenes",
+    runPhase: "idle",
+    sceneBible: "",
     stage: "setup",
     prompts: [],
     images: [],
@@ -94,6 +119,11 @@ export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => {
   const styleReferenceImage = batch.styleReferenceImage || "";
   return {
     ...batch,
+    nameSource: batch.nameSource || "manual",
+    workflowMode: batch.workflowMode || "manual",
+    promptStrategy: batch.promptStrategy || "varied-scenes",
+    runPhase: batch.runPhase || "idle",
+    sceneBible: batch.sceneBible || "",
     productReferenceImage,
     styleReferenceImage,
     promptProvider: "openrouter",
@@ -101,7 +131,8 @@ export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => {
     images: (batch.images || []).map(image => ({
       ...image,
       productReferenceImageSnapshot: image.productReferenceImageSnapshot || image.referenceImageSnapshot || productReferenceImage,
-      styleReferenceImageSnapshot: image.styleReferenceImageSnapshot || styleReferenceImage
+      styleReferenceImageSnapshot: image.styleReferenceImageSnapshot || styleReferenceImage,
+      role: image.role || "standard"
     }))
   };
 };
@@ -152,6 +183,7 @@ export const createImageJobs = (batch: ProductBatch): ImageGeneration[] => {
       promptSnapshot: prompt.prompt.trim(),
       productReferenceImageSnapshot: batch.productReferenceImage,
       styleReferenceImageSnapshot: batch.styleReferenceImage,
+      role: "standard",
       provider: batch.imageProvider,
       model: batch.imageModel,
       aspectRatio: batch.aspectRatio,
@@ -159,4 +191,24 @@ export const createImageJobs = (batch: ProductBatch): ImageGeneration[] => {
       status: "idle",
       createdAt: now
     }));
+};
+
+export const applyProductReferenceFilename = (batch: ProductBatch, filename: string): ProductBatch => {
+  if (batch.nameSource === "manual") return batch;
+  const name = filename.trim().replace(/\.[^.]+$/, "").trim();
+  return name ? { ...batch, name, nameSource: "automatic" } : batch;
+};
+
+export const getBatchDisplayStatus = (batch: ProductBatch): BatchDisplayStatus => {
+  if (batch.runPhase === "generating-prompts") return { tone: "purple", label: "生成提示词" };
+  if (batch.runPhase === "generating-anchor") return { tone: "blue", label: "生成主场景" };
+  if (batch.runPhase === "awaiting-anchor-approval") return { tone: "orange", label: "待确认主场景" };
+  const total = batch.images.length;
+  const completed = batch.images.filter(image => image.status === "completed").length;
+  const failed = batch.images.filter(image => image.status === "failed").length;
+  if (batch.runPhase === "generating-images") return { tone: "blue", label: `生图中 ${completed}/${total}` };
+  if (total > 0 && completed === total) return { tone: "green", label: "已完成" };
+  if (completed > 0 && failed > 0) return { tone: "orange", label: "部分完成" };
+  if (batch.runPhase === "failed" || (total > 0 && failed === total)) return { tone: "red", label: "失败" };
+  return { tone: "gray", label: "待生成" };
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createImageJobs, createProductBatch, normalizeProductBatch, parsePromptList } from "./productWorkflow";
+import { applyProductReferenceFilename, createImageJobs, createProductBatch, getBatchDisplayStatus, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
   it("creates a dual-reference product batch with Qwen prompt generation", () => {
@@ -57,5 +57,36 @@ describe("product workflow", () => {
     expect(jobs[0].promptSnapshot).toBe("A");
     expect(jobs[0].productReferenceImageSnapshot).toBe(batch.productReferenceImage);
     expect(jobs[0].styleReferenceImageSnapshot).toBe(batch.styleReferenceImage);
+  });
+
+  it("migrates old batches to the existing manual varied-scene workflow", () => {
+    const legacy = createProductBatch("旧批次") as any;
+    delete legacy.workflowMode;
+    delete legacy.promptStrategy;
+    delete legacy.runPhase;
+    delete legacy.nameSource;
+
+    expect(normalizeProductBatch(legacy)).toMatchObject({
+      workflowMode: "manual",
+      promptStrategy: "varied-scenes",
+      runPhase: "idle",
+      nameSource: "manual"
+    });
+  });
+
+  it("uses the product filename until the batch is manually named", () => {
+    const automatic = { ...createProductBatch(), nameSource: "automatic" as const };
+    expect(applyProductReferenceFilename(automatic, "婚宴产品.jpg").name).toBe("婚宴产品");
+    expect(applyProductReferenceFilename({ ...automatic, name: "婚宴系列", nameSource: "manual" }, "新图.png").name).toBe("婚宴系列");
+  });
+
+  it("derives compact display states from the persisted workflow", () => {
+    const batch = createProductBatch();
+    batch.runPhase = "generating-images";
+    batch.images = [
+      { ...createImageJobs({ ...batch, prompts: [{ id: "a", prompt: "A", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }] })[0], status: "completed" },
+      { ...createImageJobs({ ...batch, prompts: [{ id: "b", prompt: "B", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }] })[0], status: "generating" }
+    ];
+    expect(getBatchDisplayStatus(batch)).toEqual({ tone: "blue", label: "生图中 1/2" });
   });
 });

@@ -9,6 +9,7 @@ const makeJob = (id: string): ImageGeneration => ({
   promptSnapshot: `场景 ${id}`,
   productReferenceImageSnapshot: "data:image/png;base64,product",
   styleReferenceImageSnapshot: "data:image/png;base64,style",
+  role: "standard",
   provider: "yunwu",
   model: "gemini-3.1-flash-image-preview",
   aspectRatio: "3:4",
