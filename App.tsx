@@ -29,7 +29,7 @@ import {
   type ProductBatch
 } from "./domain/productWorkflow";
 import { generateImage } from "./services/geminiService";
-import { isGenerationAbort, prepareJobReferencesForRequest, runProductImageJobs } from "./services/productImageQueue";
+import { buildJobReferencePrompt, isGenerationAbort, prepareJobReferencesForRequest, runProductImageJobs } from "./services/productImageQueue";
 import { generateProductPromptPlan, generateProductPrompts } from "./services/productPromptService";
 import { continueManualAnchoredBatch, resumeProductBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./services/productBatchWorkflow";
 import type { ImageSize, ServiceProvider } from "./types";
@@ -188,11 +188,7 @@ const App: React.FC = () => {
 
   const generateJobImage = async (job: ImageGeneration, signal?: AbortSignal) => {
     const references = await prepareJobReferencesForRequest(job);
-    const referencePrompt = [
-      "@{产品参考图} 是唯一产品视觉依据和最高优先级主体约束，必须完全保持产品颜色、透明度、材质、瓶型、瓶盖、包装、Logo、文字、比例和结构一致。",
-      job.anchorReferenceImageSnapshot ? "@{主场景图} 锁定环境、布景、道具、光线和产品位置，只改变提示词指定的机位。" : "",
-      job.promptSnapshot
-    ].filter(Boolean).join("");
+    const referencePrompt = buildJobReferencePrompt(job);
     return generateImage(job.promptSnapshot, job.aspectRatio, job.imageSize, job.provider, references, job.model, referencePrompt, signal);
   };
 

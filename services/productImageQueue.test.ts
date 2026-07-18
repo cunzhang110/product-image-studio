@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageGeneration } from "../domain/productWorkflow";
-import { buildJobReferences, prepareJobReferencesForRequest, runProductImageJobs } from "./productImageQueue";
+import { buildJobReferencePrompt, buildJobReferences, prepareJobReferencesForRequest, runProductImageJobs } from "./productImageQueue";
 
 const makeJob = (id: string): ImageGeneration => ({
   id,
@@ -64,6 +64,14 @@ describe("product image queue", () => {
   it("orders product then master scene for a derived image", () => {
     const job = { ...makeJob("derived"), role: "derived" as const, anchorReferenceImageSnapshot: "data:image/png;base64,anchor" };
     expect(buildJobReferences(job).map(item => item.name)).toEqual(["产品参考图", "主场景图"]);
+  });
+
+  it("sends explicit product fidelity roles without a style-image role", () => {
+    const job = { ...makeJob("derived"), role: "derived" as const, anchorReferenceImageSnapshot: "data:image/png;base64,anchor" };
+    const prompt = buildJobReferencePrompt(job);
+    expect(prompt).toContain("颜色、透明度、材质");
+    expect(prompt).toContain("主场景图");
+    expect(prompt).not.toContain("风格参考图");
   });
 
   it("creates a lightweight master-scene snapshot before a derived request", async () => {
