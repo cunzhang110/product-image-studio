@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyProductReferenceFilename, createImageJobs, createProductBatch, getBatchDisplayStatus, getImageRunPhase, normalizeProductBatch, parsePromptList } from "./productWorkflow";
+import { applyProductReferenceFilename, buildCustomAnchoredPrompts, buildCustomBranchPrompt, createDefaultWineExtensionNodes, createImageJobs, createProductBatch, getBatchDisplayStatus, getImageRunPhase, getPlannedImageCount, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
   it("creates a dual-reference product batch with Qwen prompt generation", () => {
@@ -11,6 +11,8 @@ describe("product workflow", () => {
     expect(batch.prompts).toEqual([]);
     expect(batch.promptProvider).toBe("openrouter");
     expect(batch.promptModel).toBe("qwen/qwen3.5-9b");
+    expect(batch.sameSceneBranchMode).toBe("ai-random");
+    expect(batch.extensionNodes).toEqual([]);
   });
 
   it("migrates persisted prompt settings to the fixed OpenRouter model", () => {
@@ -65,12 +67,16 @@ describe("product workflow", () => {
     delete legacy.promptStrategy;
     delete legacy.runPhase;
     delete legacy.nameSource;
+    delete legacy.sameSceneBranchMode;
+    delete legacy.extensionNodes;
 
     expect(normalizeProductBatch(legacy)).toMatchObject({
       workflowMode: "manual",
       promptStrategy: "varied-scenes",
       runPhase: "idle",
-      nameSource: "manual"
+      nameSource: "manual",
+      sameSceneBranchMode: "ai-random",
+      extensionNodes: []
     });
   });
 
@@ -106,5 +112,53 @@ describe("product workflow", () => {
     expect(getImageRunPhase([{ ...job, status: "completed" }])).toBe("completed");
     expect(getImageRunPhase([{ ...job, status: "failed" }])).toBe("failed");
     expect(getImageRunPhase([{ ...job, status: "stopped" }])).toBe("stopped");
+  });
+
+  it("creates the editable five-node wine bottle template", () => {
+    const nodes = createDefaultWineExtensionNodes();
+    expect(nodes).toHaveLength(5);
+    expect(nodes.map(node => node.type)).toEqual(["camera", "camera", "camera", "action", "camera-action"]);
+    expect(nodes.map(node => node.instruction)).toEqual([
+      "左侧 45 度酒瓶近景，保持瓶身标签正面清晰可见",
+      "顶部俯拍场景全景，完整展示桌面布置与酒瓶位置",
+      "低机位瓶身与标签细节特写，背景轻微虚化",
+      "人物手持酒瓶，瓶身标签正对镜头",
+      "打开酒瓶并向酒杯倒酒，保持原场景与产品外观一致"
+    ]);
+    expect(new Set(nodes.map(node => node.id)).size).toBe(5);
+  });
+
+  it("derives custom output quantity from the branch nodes", () => {
+    const batch = createProductBatch();
+    batch.promptStrategy = "anchored-angles";
+    batch.sameSceneBranchMode = "custom-map";
+    batch.extensionNodes = createDefaultWineExtensionNodes().slice(0, 3);
+    expect(getPlannedImageCount(batch)).toBe(4);
+    batch.sameSceneBranchMode = "ai-random";
+    expect(getPlannedImageCount(batch)).toBe(batch.requestedPromptCount);
+  });
+
+  it("compiles type-specific custom branch locks", () => {
+    const [camera, , , action, combined] = createDefaultWineExtensionNodes();
+    const cameraPrompt = buildCustomBranchPrompt("固定婚宴桌面", camera);
+    const actionPrompt = buildCustomBranchPrompt("固定婚宴桌面", action);
+    const combinedPrompt = buildCustomBranchPrompt("固定婚宴桌面", combined);
+
+    expect(cameraPrompt).toContain("只允许改变摄影机方向");
+    expect(cameraPrompt).toContain("产品状态和摆放位置保持不变");
+    expect(actionPrompt).toContain("允许产品位置、人物手势和使用状态按指令变化");
+    expect(actionPrompt).toContain("镜头风格保持不变");
+    expect(combinedPrompt).toContain("允许机位和产品动作按指令同时变化");
+    expect([cameraPrompt, actionPrompt, combinedPrompt].every(prompt => prompt.includes("透明度"))).toBe(true);
+  });
+
+  it("places the master prompt before custom branches", () => {
+    const batch = createProductBatch();
+    batch.extensionNodes = createDefaultWineExtensionNodes().slice(0, 2);
+    expect(buildCustomAnchoredPrompts(batch, "主场景提示词", "固定婚宴桌面")).toEqual([
+      "主场景提示词",
+      buildCustomBranchPrompt("固定婚宴桌面", batch.extensionNodes[0]),
+      buildCustomBranchPrompt("固定婚宴桌面", batch.extensionNodes[1])
+    ]);
   });
 });

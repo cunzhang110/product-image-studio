@@ -7,6 +7,8 @@ export type PromptStatus = "ready" | "generating" | "failed";
 export type ImageJobStatus = "idle" | "queued" | "generating" | "completed" | "failed" | "stopped";
 export type WorkflowMode = "manual" | "automatic";
 export type PromptStrategy = "varied-scenes" | "anchored-angles";
+export type SameSceneBranchMode = "ai-random" | "custom-map";
+export type ExtensionNodeType = "camera" | "action" | "camera-action";
 export type BatchRunPhase = "idle" | "generating-prompts" | "generating-anchor" | "awaiting-anchor-approval" | "generating-images" | "completed" | "failed" | "stopped";
 export type BatchNameSource = "automatic" | "manual";
 export type ImageGenerationRole = "standard" | "anchor" | "derived";
@@ -15,6 +17,12 @@ export type BatchStatusTone = "gray" | "purple" | "blue" | "orange" | "green" | 
 export interface BatchDisplayStatus {
   tone: BatchStatusTone;
   label: string;
+}
+
+export interface SceneExtensionNode {
+  id: string;
+  type: ExtensionNodeType;
+  instruction: string;
 }
 
 export interface PromptVariant {
@@ -66,6 +74,8 @@ export interface ProductBatch {
   concurrency: number;
   workflowMode: WorkflowMode;
   promptStrategy: PromptStrategy;
+  sameSceneBranchMode: SameSceneBranchMode;
+  extensionNodes: SceneExtensionNode[];
   runPhase: BatchRunPhase;
   runError?: string;
   sceneBible: string;
@@ -104,6 +114,8 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
     concurrency: 1,
     workflowMode: "manual",
     promptStrategy: "varied-scenes",
+    sameSceneBranchMode: "ai-random",
+    extensionNodes: [],
     runPhase: "idle",
     sceneBible: "",
     stage: "setup",
@@ -122,6 +134,14 @@ export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => {
     nameSource: batch.nameSource || "manual",
     workflowMode: batch.workflowMode || "manual",
     promptStrategy: batch.promptStrategy || "varied-scenes",
+    sameSceneBranchMode: batch.sameSceneBranchMode || "ai-random",
+    extensionNodes: Array.isArray(batch.extensionNodes)
+      ? batch.extensionNodes.map(node => ({
+        id: node.id || createId(),
+        type: node.type || "camera",
+        instruction: String(node.instruction || "")
+      }))
+      : [],
     runPhase: batch.runPhase || "idle",
     sceneBible: batch.sceneBible || "",
     productReferenceImage,
@@ -198,6 +218,47 @@ export const applyProductReferenceFilename = (batch: ProductBatch, filename: str
   const name = filename.trim().replace(/\.[^.]+$/, "").trim();
   return name ? { ...batch, name, nameSource: "automatic" } : batch;
 };
+
+const DEFAULT_WINE_EXTENSION_NODES: Array<Omit<SceneExtensionNode, "id">> = [
+  { type: "camera", instruction: "左侧 45 度酒瓶近景，保持瓶身标签正面清晰可见" },
+  { type: "camera", instruction: "顶部俯拍场景全景，完整展示桌面布置与酒瓶位置" },
+  { type: "camera", instruction: "低机位瓶身与标签细节特写，背景轻微虚化" },
+  { type: "action", instruction: "人物手持酒瓶，瓶身标签正对镜头" },
+  { type: "camera-action", instruction: "打开酒瓶并向酒杯倒酒，保持原场景与产品外观一致" }
+];
+
+export const createDefaultWineExtensionNodes = (): SceneExtensionNode[] => (
+  DEFAULT_WINE_EXTENSION_NODES.map(node => ({ ...node, id: createId() }))
+);
+
+export const getPlannedImageCount = (batch: ProductBatch) => (
+  batch.promptStrategy === "anchored-angles" && batch.sameSceneBranchMode === "custom-map"
+    ? 1 + batch.extensionNodes.length
+    : batch.requestedPromptCount
+);
+
+const CUSTOM_BRANCH_RULES: Record<ExtensionNodeType, string> = {
+  camera: "只允许改变摄影机方向、高度、距离、焦段、景别、构图和景深；产品状态和摆放位置保持不变。",
+  action: "允许产品位置、人物手势和使用状态按指令变化；镜头风格保持不变。",
+  "camera-action": "允许机位和产品动作按指令同时变化。"
+};
+
+export const buildCustomBranchPrompt = (sceneBible: string, node: SceneExtensionNode) => [
+  "严格参考主场景图，保持同一空间、背景、桌面、道具、光线方向、色彩影调和整体画面调性。",
+  `场景固定字段：${sceneBible.trim() || "完全沿用主场景图"}。`,
+  CUSTOM_BRANCH_RULES[node.type],
+  `本次延伸指令：${node.instruction.trim()}。`,
+  "产品参考图是唯一产品视觉依据，必须保持产品颜色、透明度、材质、瓶型、瓶盖、包装、标签、Logo、文字、比例和结构一致，不得替换或重新设计产品。"
+].join("\n");
+
+export const buildCustomAnchoredPrompts = (
+  batch: ProductBatch,
+  anchorPrompt: string,
+  sceneBible: string
+) => [
+  anchorPrompt.trim(),
+  ...batch.extensionNodes.map(node => buildCustomBranchPrompt(sceneBible, node))
+];
 
 export const getImageRunPhase = (images: ImageGeneration[]): BatchRunPhase => {
   if (images.some(image => image.status === "stopped")) return "stopped";
