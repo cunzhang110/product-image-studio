@@ -9,6 +9,7 @@ import {
   Layers3,
   Plus,
   Settings2,
+  Square,
   Sparkles,
   Trash2,
   WandSparkles
@@ -28,9 +29,9 @@ import {
   type ProductBatch
 } from "./domain/productWorkflow";
 import { generateImage } from "./services/geminiService";
-import { prepareJobReferencesForRequest, runProductImageJobs } from "./services/productImageQueue";
+import { isGenerationAbort, prepareJobReferencesForRequest, runProductImageJobs } from "./services/productImageQueue";
 import { generateProductPromptPlan, generateProductPrompts } from "./services/productPromptService";
-import { continueManualAnchoredBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./services/productBatchWorkflow";
+import { continueManualAnchoredBatch, resumeProductBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./services/productBatchWorkflow";
 import type { ImageSize, ServiceProvider } from "./types";
 import { loadProductBatchesFromDB, saveProductBatchesToDB } from "./utils/db";
 
@@ -85,6 +86,7 @@ const App: React.FC = () => {
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
   const [imageRunning, setImageRunning] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(null);
+  const activeRunControllerRef = useRef<AbortController | null>(null);
 
   const activeBatch = useMemo(
     () => batches.find(batch => batch.id === activeBatchId) || batches[0],
@@ -115,6 +117,22 @@ const App: React.FC = () => {
   }, [toast]);
 
   const showToast = (message: string, tone: "success" | "error" | "info" = "info") => setToast({ message, tone });
+
+  const beginRun = () => {
+    activeRunControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeRunControllerRef.current = controller;
+    return controller;
+  };
+
+  const isCurrentRun = (controller: AbortController) => activeRunControllerRef.current === controller;
+
+  const finishRun = (controller: AbortController) => {
+    if (!isCurrentRun(controller)) return;
+    activeRunControllerRef.current = null;
+    setPromptLoading(false);
+    setImageRunning(false);
+  };
 
   const updateBatch = (batchId: string, updater: (batch: ProductBatch) => ProductBatch) => {
     setBatches(current => current.map(batch => batch.id === batchId
@@ -151,36 +169,35 @@ const App: React.FC = () => {
     if (!batch.name.trim()) throw new Error("请填写产品或批次名称");
   };
 
-  const requestPrompts = async (batch: ProductBatch, count: number) => generateProductPrompts({
+  const requestPrompts = async (batch: ProductBatch, count: number, signal?: AbortSignal) => generateProductPrompts({
     productName: batch.name,
     styleReferenceImage: batch.styleReferenceImage,
     promptTemplate: batch.promptTemplate,
     creativeGuide: batch.creativeGuide,
     count
-  });
+  }, signal);
 
-  const requestPromptPlan = (batch: ProductBatch) => generateProductPromptPlan({
+  const requestPromptPlan = (batch: ProductBatch, signal?: AbortSignal) => generateProductPromptPlan({
     productName: batch.name,
     styleReferenceImage: batch.styleReferenceImage,
     promptTemplate: batch.promptTemplate,
     creativeGuide: batch.creativeGuide,
     count: batch.requestedPromptCount,
     strategy: batch.promptStrategy
-  });
+  }, signal);
 
-  const generateJobImage = async (job: ImageGeneration) => {
+  const generateJobImage = async (job: ImageGeneration, signal?: AbortSignal) => {
     const references = await prepareJobReferencesForRequest(job);
     const referencePrompt = [
-      "@{产品参考图} 是最高优先级主体约束，必须完全保持产品外观、包装、Logo、文字和结构一致。",
+      "@{产品参考图} 是唯一产品视觉依据和最高优先级主体约束，必须完全保持产品颜色、透明度、材质、瓶型、瓶盖、包装、Logo、文字、比例和结构一致。",
       job.anchorReferenceImageSnapshot ? "@{主场景图} 锁定环境、布景、道具、光线和产品位置，只改变提示词指定的机位。" : "",
-      "@{风格参考图} 只参考构图、光线、色彩和调性，不得改变产品。",
       job.promptSnapshot
     ].filter(Boolean).join("");
-    return generateImage(job.promptSnapshot, job.aspectRatio, job.imageSize, job.provider, references, job.model, referencePrompt);
+    return generateImage(job.promptSnapshot, job.aspectRatio, job.imageSize, job.provider, references, job.model, referencePrompt, signal);
   };
 
-  const executeBatchJobs: ProductBatchWorkflowDependencies["runJobs"] = (batch, jobs, onJobs) =>
-    runProductImageJobs(jobs, batch.concurrency, generateJobImage, onJobs);
+  const executeBatchJobs: ProductBatchWorkflowDependencies["runJobs"] = (batch, jobs, onJobs, signal) =>
+    runProductImageJobs(jobs, batch.concurrency, job => generateJobImage(job, signal), onJobs, signal);
 
   const workflowDependencies: ProductBatchWorkflowDependencies = {
     generatePromptPlan: requestPromptPlan,
@@ -189,19 +206,22 @@ const App: React.FC = () => {
 
   const handleGeneratePrompts = async () => {
     if (!activeBatch || promptLoading) return;
+    const controller = beginRun();
     try {
       validatePromptInput(activeBatch);
       setPromptLoading(true);
       updateBatch(activeBatch.id, batch => ({ ...batch, runPhase: "generating-prompts", runError: undefined }));
-      const prompts = await requestPrompts(activeBatch, activeBatch.requestedPromptCount);
+      const prompts = await requestPrompts(activeBatch, activeBatch.requestedPromptCount, controller.signal);
+      if (!isCurrentRun(controller)) return;
       updateBatch(activeBatch.id, batch => ({ ...batch, prompts: promptsToVariants(prompts), stage: "review", runPhase: "idle" }));
       showToast(`已生成 ${prompts.length} 条提示词，确认后再开始生图`, "success");
     } catch (error) {
+      if (controller.signal.aborted || isGenerationAbort(error)) return;
       const message = error instanceof Error ? error.message : "提示词生成失败";
       updateBatch(activeBatch.id, batch => ({ ...batch, runPhase: "failed", runError: message }));
       showToast(message, "error");
     } finally {
-      setPromptLoading(false);
+      finishRun(controller);
     }
   };
 
@@ -240,18 +260,26 @@ const App: React.FC = () => {
   };
 
   const runJobs = async (batch: ProductBatch, jobs: ImageGeneration[]) => {
+    const controller = beginRun();
     setImageRunning(true);
-    updateBatch(batch.id, current => ({ ...current, images: jobs, stage: "results" }));
+    updateBatch(batch.id, current => ({ ...current, images: jobs, stage: "results", runPhase: "generating-images", runError: undefined }));
     const completed = await runProductImageJobs(
       jobs,
       batch.concurrency,
-      generateJobImage,
-      nextJobs => updateBatch(batch.id, current => ({ ...current, images: nextJobs, stage: "results" }))
+      job => generateJobImage(job, controller.signal),
+      nextJobs => {
+        if (isCurrentRun(controller)) updateBatch(batch.id, current => ({ ...current, images: nextJobs, stage: "results" }));
+      },
+      controller.signal
     );
-    updateBatch(batch.id, current => ({ ...current, images: completed, stage: "results" }));
-    setImageRunning(false);
+    if (!isCurrentRun(controller)) return;
+    const runPhase = completed.some(job => job.status === "stopped")
+      ? "stopped" as const
+      : completed.some(job => job.status === "completed") ? "completed" as const : "failed" as const;
+    updateBatch(batch.id, current => ({ ...current, images: completed, stage: "results", runPhase }));
     const successCount = completed.filter(job => job.status === "completed").length;
     showToast(`本批次完成 ${successCount}/${completed.length} 张`, successCount ? "success" : "error");
+    finishRun(controller);
   };
 
   const handleSetupStart = async () => {
@@ -260,37 +288,46 @@ const App: React.FC = () => {
       await handleGeneratePrompts();
       return;
     }
+    const controller = beginRun();
     try {
       validatePromptInput(activeBatch);
       if (!activeBatch.productReferenceImage) throw new Error("请先上传产品参考图");
       setPromptLoading(true);
       setImageRunning(true);
-      const onUpdate = (next: ProductBatch) => updateBatch(activeBatch.id, () => next);
+      const onUpdate = (next: ProductBatch) => {
+        if (isCurrentRun(controller)) updateBatch(activeBatch.id, () => next);
+      };
       const result = activeBatch.workflowMode === "automatic"
-        ? await runAutomaticProductBatch(activeBatch, workflowDependencies, onUpdate)
-        : await startManualAnchoredBatch(activeBatch, workflowDependencies, onUpdate);
+        ? await runAutomaticProductBatch(activeBatch, workflowDependencies, onUpdate, controller.signal)
+        : await startManualAnchoredBatch(activeBatch, workflowDependencies, onUpdate, controller.signal);
+      if (!isCurrentRun(controller)) return;
       updateBatch(activeBatch.id, () => result);
       const completed = result.images.filter(image => image.status === "completed").length;
       showToast(result.runPhase === "failed" ? result.runError || "流程失败" : result.runPhase === "awaiting-anchor-approval" ? "主场景已生成，请确认后继续" : `已完成 ${completed}/${result.images.length} 张`, result.runPhase === "failed" ? "error" : "success");
     } catch (error) {
+      if (controller.signal.aborted || isGenerationAbort(error)) return;
       showToast(error instanceof Error ? error.message : "流程启动失败", "error");
     } finally {
-      setPromptLoading(false);
-      setImageRunning(false);
+      finishRun(controller);
     }
   };
 
   const handleContinueAnchor = async () => {
     if (!activeBatch || imageRunning) return;
+    const controller = beginRun();
     try {
       setImageRunning(true);
-      const result = await continueManualAnchoredBatch(activeBatch, workflowDependencies, next => updateBatch(activeBatch.id, () => next));
+      const result = await continueManualAnchoredBatch(activeBatch, workflowDependencies, next => {
+        if (isCurrentRun(controller)) updateBatch(activeBatch.id, () => next);
+      }, controller.signal);
+      if (!isCurrentRun(controller)) return;
       updateBatch(activeBatch.id, () => result);
       showToast(`本批次完成 ${result.images.filter(image => image.status === "completed").length}/${result.images.length} 张`, "success");
     } catch (error) {
+      if (controller.signal.aborted || isGenerationAbort(error)) return;
       showToast(error instanceof Error ? error.message : "继续生成失败", "error");
     } finally {
-      setImageRunning(false);
+      finishRun(controller);
     }
   };
 
@@ -304,17 +341,68 @@ const App: React.FC = () => {
 
   const handleRetryJob = async (job: ImageGeneration) => {
     if (!activeBatch || imageRunning) return;
+    const controller = beginRun();
     const retryJob = { ...job, status: "idle" as const, error: undefined, resultUrl: undefined };
     const otherJobs = activeBatch.images.filter(item => item.id !== job.id);
-    updateBatch(activeBatch.id, batch => ({ ...batch, images: [...otherJobs, retryJob] }));
+    setImageRunning(true);
+    updateBatch(activeBatch.id, batch => ({ ...batch, images: [...otherJobs, retryJob], runPhase: "generating-images" }));
     const result = await runProductImageJobs([retryJob], 1, async current => {
-      return generateJobImage(current);
-    });
+      return generateJobImage(current, controller.signal);
+    }, undefined, controller.signal);
+    if (!isCurrentRun(controller)) return;
     updateBatch(activeBatch.id, batch => ({
       ...batch,
       images: batch.images.map(item => item.id === job.id ? result[0] : item),
-      runPhase: job.role === "anchor" && result[0].status === "completed" ? "awaiting-anchor-approval" : batch.runPhase
+      runPhase: result[0].status === "stopped"
+        ? "stopped"
+        : job.role === "anchor" && result[0].status === "completed" ? "awaiting-anchor-approval" : batch.runPhase
     }));
+    finishRun(controller);
+  };
+
+  const handleStopGeneration = () => {
+    if (!activeBatch || !activeRunControllerRef.current) return;
+    const controller = activeRunControllerRef.current;
+    controller.abort();
+    activeRunControllerRef.current = null;
+    setPromptLoading(false);
+    setImageRunning(false);
+    updateBatch(activeBatch.id, batch => ({
+      ...batch,
+      runPhase: "stopped",
+      runError: undefined,
+      images: batch.images.map(image => ["queued", "generating"].includes(image.status)
+        ? { ...image, status: "stopped" as const, error: undefined }
+        : image)
+    }));
+    showToast("生成已停止，已完成的结果已保留", "info");
+  };
+
+  const handleResumeGeneration = async () => {
+    if (!activeBatch || promptLoading || imageRunning) return;
+    const controller = beginRun();
+    setPromptLoading(!activeBatch.prompts.length);
+    setImageRunning(Boolean(activeBatch.prompts.length));
+    try {
+      const result = await resumeProductBatch(activeBatch, workflowDependencies, next => {
+        if (isCurrentRun(controller)) updateBatch(activeBatch.id, () => next);
+      }, controller.signal);
+      if (!isCurrentRun(controller)) return;
+      updateBatch(activeBatch.id, () => result);
+      if (result.runPhase === "awaiting-anchor-approval") {
+        showToast("主场景已生成，请确认后继续", "success");
+      } else if (result.runPhase === "idle") {
+        showToast("提示词已恢复，请确认后开始生图", "success");
+      } else {
+        const completed = result.images.filter(image => image.status === "completed").length;
+        showToast(`已继续完成 ${completed}/${result.images.length} 张`, result.runPhase === "failed" ? "error" : "success");
+      }
+    } catch (error) {
+      if (controller.signal.aborted || isGenerationAbort(error)) return;
+      showToast(error instanceof Error ? error.message : "继续生成失败", "error");
+    } finally {
+      finishRun(controller);
+    }
   };
 
   const downloadBatch = async () => {
@@ -343,6 +431,7 @@ const App: React.FC = () => {
 
   const selectedPromptCount = activeBatch.prompts.filter(prompt => prompt.selected).length;
   const completedCount = activeBatch.images.filter(image => image.status === "completed").length;
+  const generationActive = promptLoading || imageRunning || ["generating-prompts", "generating-anchor", "generating-images"].includes(activeBatch.runPhase);
 
   return (
     <div className="app-shell">
@@ -473,11 +562,15 @@ const App: React.FC = () => {
             <div><span>已完成</span><strong>{completedCount} 张</strong></div>
           </div>
 
-          {activeBatch.stage === "setup" && <button className="panel-primary" disabled={promptLoading || imageRunning || (activeBatch.workflowMode === "automatic" && (!activeBatch.styleReferenceImage || !activeBatch.productReferenceImage))} onClick={handleSetupStart}><Sparkles size={17} />{promptLoading || imageRunning ? "正在处理" : activeBatch.workflowMode === "automatic" ? `开始自动生成 ${activeBatch.requestedPromptCount} 张` : activeBatch.promptStrategy === "anchored-angles" ? "生成主场景" : "生成提示词"}</button>}
-          {activeBatch.stage === "review" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" disabled={imageRunning} onClick={handleContinueAnchor}><WandSparkles size={17} />{imageRunning ? "正在生成其余机位" : "确认主场景并继续"}</button>}
-          {activeBatch.stage === "review" && activeBatch.runPhase !== "awaiting-anchor-approval" && <button className="panel-primary" disabled={imageRunning || selectedPromptCount === 0} onClick={handleGenerateImages}><WandSparkles size={17} />{imageRunning ? "正在批量生图" : `生成已选 ${selectedPromptCount} 张`}</button>}
-          {activeBatch.stage === "results" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" disabled={imageRunning} onClick={handleContinueAnchor}><WandSparkles size={17} />{imageRunning ? "正在生成其余机位" : "确认主场景并继续"}</button>}
-          {activeBatch.stage === "results" && activeBatch.runPhase !== "awaiting-anchor-approval" && <button className="panel-primary" onClick={downloadBatch}><Download size={17} />打包下载 {completedCount} 张</button>}
+          <div className="panel-actions">
+            {generationActive && <button className="panel-primary panel-danger" onClick={handleStopGeneration}><Square size={16} fill="currentColor" />停止生成</button>}
+            {!generationActive && activeBatch.runPhase === "stopped" && <button className="panel-primary" onClick={handleResumeGeneration}><WandSparkles size={17} />继续剩余任务</button>}
+            {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "setup" && <button className="panel-primary" disabled={activeBatch.workflowMode === "automatic" && (!activeBatch.styleReferenceImage || !activeBatch.productReferenceImage)} onClick={handleSetupStart}><Sparkles size={17} />{activeBatch.workflowMode === "automatic" ? `开始自动生成 ${activeBatch.requestedPromptCount} 张` : activeBatch.promptStrategy === "anchored-angles" ? "生成主场景" : "生成提示词"}</button>}
+            {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "review" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" onClick={handleContinueAnchor}><WandSparkles size={17} />确认主场景并继续</button>}
+            {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "review" && activeBatch.runPhase !== "awaiting-anchor-approval" && <button className="panel-primary" disabled={selectedPromptCount === 0} onClick={handleGenerateImages}><WandSparkles size={17} />生成已选 {selectedPromptCount} 张</button>}
+            {!generationActive && activeBatch.runPhase !== "stopped" && activeBatch.stage === "results" && activeBatch.runPhase === "awaiting-anchor-approval" && <button className="panel-primary" onClick={handleContinueAnchor}><WandSparkles size={17} />确认主场景并继续</button>}
+            {!generationActive && activeBatch.stage === "results" && completedCount > 0 && <button className="panel-primary panel-secondary" onClick={downloadBatch}><Download size={17} />打包下载 {completedCount} 张</button>}
+          </div>
         </aside>
       </div>
 
