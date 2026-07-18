@@ -24,6 +24,7 @@ import {
   createProductBatch,
   applyProductReferenceFilename,
   getBatchDisplayStatus,
+  getImageRunPhase,
   promptsToVariants,
   type ImageGeneration,
   type ProductBatch
@@ -87,6 +88,7 @@ const App: React.FC = () => {
   const [imageRunning, setImageRunning] = useState(false);
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(null);
   const activeRunControllerRef = useRef<AbortController | null>(null);
+  const activeRunBatchIdRef = useRef<string | null>(null);
 
   const activeBatch = useMemo(
     () => batches.find(batch => batch.id === activeBatchId) || batches[0],
@@ -118,10 +120,11 @@ const App: React.FC = () => {
 
   const showToast = (message: string, tone: "success" | "error" | "info" = "info") => setToast({ message, tone });
 
-  const beginRun = () => {
+  const beginRun = (batchId: string) => {
     activeRunControllerRef.current?.abort();
     const controller = new AbortController();
     activeRunControllerRef.current = controller;
+    activeRunBatchIdRef.current = batchId;
     return controller;
   };
 
@@ -130,6 +133,7 @@ const App: React.FC = () => {
   const finishRun = (controller: AbortController) => {
     if (!isCurrentRun(controller)) return;
     activeRunControllerRef.current = null;
+    activeRunBatchIdRef.current = null;
     setPromptLoading(false);
     setImageRunning(false);
   };
@@ -202,7 +206,7 @@ const App: React.FC = () => {
 
   const handleGeneratePrompts = async () => {
     if (!activeBatch || promptLoading) return;
-    const controller = beginRun();
+    const controller = beginRun(activeBatch.id);
     try {
       validatePromptInput(activeBatch);
       setPromptLoading(true);
@@ -256,7 +260,7 @@ const App: React.FC = () => {
   };
 
   const runJobs = async (batch: ProductBatch, jobs: ImageGeneration[]) => {
-    const controller = beginRun();
+    const controller = beginRun(batch.id);
     setImageRunning(true);
     updateBatch(batch.id, current => ({ ...current, images: jobs, stage: "results", runPhase: "generating-images", runError: undefined }));
     const completed = await runProductImageJobs(
@@ -284,7 +288,7 @@ const App: React.FC = () => {
       await handleGeneratePrompts();
       return;
     }
-    const controller = beginRun();
+    const controller = beginRun(activeBatch.id);
     try {
       validatePromptInput(activeBatch);
       if (!activeBatch.productReferenceImage) throw new Error("请先上传产品参考图");
@@ -310,7 +314,7 @@ const App: React.FC = () => {
 
   const handleContinueAnchor = async () => {
     if (!activeBatch || imageRunning) return;
-    const controller = beginRun();
+    const controller = beginRun(activeBatch.id);
     try {
       setImageRunning(true);
       const result = await continueManualAnchoredBatch(activeBatch, workflowDependencies, next => {
@@ -337,7 +341,7 @@ const App: React.FC = () => {
 
   const handleRetryJob = async (job: ImageGeneration) => {
     if (!activeBatch || imageRunning) return;
-    const controller = beginRun();
+    const controller = beginRun(activeBatch.id);
     const retryJob = { ...job, status: "idle" as const, error: undefined, resultUrl: undefined };
     const otherJobs = activeBatch.images.filter(item => item.id !== job.id);
     setImageRunning(true);
@@ -346,24 +350,29 @@ const App: React.FC = () => {
       return generateJobImage(current, controller.signal);
     }, undefined, controller.signal);
     if (!isCurrentRun(controller)) return;
-    updateBatch(activeBatch.id, batch => ({
-      ...batch,
-      images: batch.images.map(item => item.id === job.id ? result[0] : item),
-      runPhase: result[0].status === "stopped"
-        ? "stopped"
-        : job.role === "anchor" && result[0].status === "completed" ? "awaiting-anchor-approval" : batch.runPhase
-    }));
+    updateBatch(activeBatch.id, batch => {
+      const images = batch.images.map(item => item.id === job.id ? result[0] : item);
+      return {
+        ...batch,
+        images,
+        runPhase: job.role === "anchor" && result[0].status === "completed"
+          ? "awaiting-anchor-approval"
+          : getImageRunPhase(images)
+      };
+    });
     finishRun(controller);
   };
 
   const handleStopGeneration = () => {
     if (!activeBatch || !activeRunControllerRef.current) return;
     const controller = activeRunControllerRef.current;
+    const runningBatchId = activeRunBatchIdRef.current || activeBatch.id;
     controller.abort();
     activeRunControllerRef.current = null;
+    activeRunBatchIdRef.current = null;
     setPromptLoading(false);
     setImageRunning(false);
-    updateBatch(activeBatch.id, batch => ({
+    updateBatch(runningBatchId, batch => ({
       ...batch,
       runPhase: "stopped",
       runError: undefined,
@@ -376,7 +385,7 @@ const App: React.FC = () => {
 
   const handleResumeGeneration = async () => {
     if (!activeBatch || promptLoading || imageRunning) return;
-    const controller = beginRun();
+    const controller = beginRun(activeBatch.id);
     setPromptLoading(!activeBatch.prompts.length);
     setImageRunning(Boolean(activeBatch.prompts.length));
     try {

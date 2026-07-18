@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyProductReferenceFilename, createImageJobs, createProductBatch, getBatchDisplayStatus, normalizeProductBatch, parsePromptList } from "./productWorkflow";
+import { applyProductReferenceFilename, createImageJobs, createProductBatch, getBatchDisplayStatus, getImageRunPhase, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
   it("creates a dual-reference product batch with Qwen prompt generation", () => {
@@ -96,5 +96,15 @@ describe("product workflow", () => {
     const batch = createProductBatch();
     batch.runPhase = "stopped";
     expect(getBatchDisplayStatus(batch)).toEqual({ tone: "orange", label: "已停止" });
+  });
+
+  it("settles a retry instead of leaving the batch generating", () => {
+    const batch = createProductBatch();
+    batch.productReferenceImage = "data:image/png;base64,product";
+    batch.prompts = [{ id: "a", prompt: "A", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }];
+    const [job] = createImageJobs(batch);
+    expect(getImageRunPhase([{ ...job, status: "completed" }])).toBe("completed");
+    expect(getImageRunPhase([{ ...job, status: "failed" }])).toBe("failed");
+    expect(getImageRunPhase([{ ...job, status: "stopped" }])).toBe("stopped");
   });
 });

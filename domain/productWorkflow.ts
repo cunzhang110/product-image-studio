@@ -199,6 +199,12 @@ export const applyProductReferenceFilename = (batch: ProductBatch, filename: str
   return name ? { ...batch, name, nameSource: "automatic" } : batch;
 };
 
+export const getImageRunPhase = (images: ImageGeneration[]): BatchRunPhase => {
+  if (images.some(image => image.status === "stopped")) return "stopped";
+  if (images.some(image => image.status === "completed")) return "completed";
+  return "failed";
+};
+
 export const getBatchDisplayStatus = (batch: ProductBatch): BatchDisplayStatus => {
   if (batch.runPhase === "stopped") return { tone: "orange", label: "已停止" };
   if (batch.runPhase === "generating-prompts") return { tone: "purple", label: "生成提示词" };

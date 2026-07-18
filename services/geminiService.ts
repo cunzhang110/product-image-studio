@@ -480,6 +480,10 @@ const buildAPIMartReferenceImageUrls = (referenceImages: ReferenceImageItem[], p
   return getReferencedImagesFromPrompt(referenceImages, prompt).map(reference => reference.imageData);
 };
 
+export const resolveImageGenerationPrompt = (prompt: string, referencePrompt?: string) => (
+  referencePrompt?.trim() || prompt
+);
+
 const fetchImageAsDataUrl = async (imageUrl: string, signal?: AbortSignal) => {
   const response = await fetch(imageUrl, { signal });
   if (!response.ok) {
@@ -558,7 +562,7 @@ const generateMuzhiImage = async (
   const imageUrls = referencedImages.map(reference => reference.imageData);
   const payload: Record<string, unknown> = {
     model: imageModel,
-    prompt: buildMuzhiReferencePrompt(referencePrompt || prompt, referencedImages),
+    prompt: buildMuzhiReferencePrompt(resolveImageGenerationPrompt(prompt, referencePrompt), referencedImages),
     size: getMuzhiImageSize(imageModel, aspectRatio, imageSize),
     n: 1,
     response_format: "b64_json"
@@ -618,7 +622,7 @@ const createOpenAICompatibleImageTask = async (
 
   const payload: Record<string, unknown> = {
     model: imageModel,
-    prompt,
+    prompt: resolveImageGenerationPrompt(prompt, referencePrompt),
     size: aspectRatio,
     n: 1
   };
@@ -804,7 +808,7 @@ export const generateImage = async (
 
     const parts: Array<Record<string, unknown>> = [
       ...buildYunwuReferenceParts(referenceImages || [], referencePrompt || prompt),
-      { text: prompt }
+      { text: resolveImageGenerationPrompt(prompt, referencePrompt) }
     ];
 
     const response = await requestJson<GeminiNativeResponse>("yunwu", `/v1beta/models/${encodeURIComponent(imageModel)}:generateContent`, {

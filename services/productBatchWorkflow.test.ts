@@ -72,6 +72,46 @@ describe("product batch workflow", () => {
     expect(result.runError).toBeUndefined();
   });
 
+  it("keeps automatic master-scene cancellation as stopped", async () => {
+    const controller = new AbortController();
+    const deps = dependencies();
+    deps.runJobs = async (_batch, jobs, onJobs) => {
+      controller.abort();
+      const stopped = jobs.map(job => ({ ...job, status: "stopped" as const }));
+      onJobs(stopped);
+      return stopped;
+    };
+
+    const result = await runAutomaticProductBatch(
+      batchWithRefs({ workflowMode: "automatic", promptStrategy: "anchored-angles" }),
+      deps,
+      vi.fn(),
+      controller.signal
+    );
+
+    expect(result.runPhase).toBe("stopped");
+  });
+
+  it("keeps manual master-scene cancellation as stopped", async () => {
+    const controller = new AbortController();
+    const deps = dependencies();
+    deps.runJobs = async (_batch, jobs, onJobs) => {
+      controller.abort();
+      const stopped = jobs.map(job => ({ ...job, status: "stopped" as const }));
+      onJobs(stopped);
+      return stopped;
+    };
+
+    const result = await startManualAnchoredBatch(
+      batchWithRefs({ promptStrategy: "anchored-angles" }),
+      deps,
+      vi.fn(),
+      controller.signal
+    );
+
+    expect(result.runPhase).toBe("stopped");
+  });
+
   it("resumes only unfinished standard jobs", async () => {
     const initial = await runAutomaticProductBatch(batchWithRefs({ workflowMode: "automatic" }), dependencies(), vi.fn());
     const stopped = {

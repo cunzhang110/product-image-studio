@@ -101,6 +101,9 @@ export const runAutomaticProductBatch = async (
 
     const anchorRun = await runAnchor(batch, dependencies, onUpdate, signal);
     batch = anchorRun.batch;
+    if (signal?.aborted || anchorRun.anchor.status === "stopped") {
+      return stoppedBatch(batch, onUpdate);
+    }
     if (anchorRun.anchor.status !== "completed" || !anchorRun.anchor.resultUrl) {
       return emit({ ...batch, runPhase: "failed", runError: anchorRun.anchor.error || "主场景生成失败" }, onUpdate);
     }
@@ -129,6 +132,9 @@ export const startManualAnchoredBatch = async (
     if (plan.strategy !== "anchored-angles") throw new Error("当前不是同场景多机位方案。");
     batch = emit(preparePrompts(batch, plan), onUpdate);
     const anchorRun = await runAnchor(batch, dependencies, onUpdate, signal);
+    if (signal?.aborted || anchorRun.anchor.status === "stopped") {
+      return stoppedBatch(anchorRun.batch, onUpdate);
+    }
     if (anchorRun.anchor.status !== "completed") {
       return emit({ ...anchorRun.batch, runPhase: "failed", runError: anchorRun.anchor.error }, onUpdate);
     }
