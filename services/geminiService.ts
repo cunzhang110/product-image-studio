@@ -536,7 +536,7 @@ const generateMuzhiImage = async (
   const imageUrls = referencedImages.map(reference => reference.imageData);
   const payload: Record<string, unknown> = {
     model: imageModel,
-    prompt: buildMuzhiReferencePrompt(prompt, referencedImages),
+    prompt: buildMuzhiReferencePrompt(referencePrompt || prompt, referencedImages),
     size: getMuzhiImageSize(imageModel, aspectRatio, imageSize),
     n: 1,
     response_format: "b64_json"

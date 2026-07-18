@@ -9,9 +9,6 @@ export const buildJobReferences = (job: ImageGeneration): ReferenceImageItem[] =
   { id: "product-reference", name: "产品参考图", imageData: job.productReferenceImageSnapshot },
   ...(job.anchorReferenceImageSnapshot
     ? [{ id: "anchor-reference", name: "主场景图", imageData: job.anchorReferenceImageSnapshot }]
-    : []),
-  ...(job.styleReferenceImageSnapshot
-    ? [{ id: "style-reference", name: "风格参考图", imageData: job.styleReferenceImageSnapshot }]
     : [])
 ];
 
@@ -23,7 +20,6 @@ export const prepareJobReferencesForRequest = async (
   if (!job.anchorReferenceImageSnapshot) return references;
   const optimizedAnchor = await optimize(job.anchorReferenceImageSnapshot);
   return references
-    .filter(reference => !(job.provider === "muzhi" && reference.id === "style-reference"))
     .map(reference => reference.id === "anchor-reference"
     ? { ...reference, imageData: optimizedAnchor }
     : reference);

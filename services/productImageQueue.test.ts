@@ -52,9 +52,18 @@ describe("product image queue", () => {
     expect(result[1].error).toBe("渠道不可用");
   });
 
-  it("orders product, master scene, then style references", () => {
+  it("uses only the product reference for a standard image", () => {
+    expect(buildJobReferences(makeJob("standard")).map(item => item.name)).toEqual(["产品参考图"]);
+  });
+
+  it("uses only the product reference for a master scene", () => {
+    const job = { ...makeJob("anchor"), role: "anchor" as const };
+    expect(buildJobReferences(job).map(item => item.name)).toEqual(["产品参考图"]);
+  });
+
+  it("orders product then master scene for a derived image", () => {
     const job = { ...makeJob("derived"), role: "derived" as const, anchorReferenceImageSnapshot: "data:image/png;base64,anchor" };
-    expect(buildJobReferences(job).map(item => item.name)).toEqual(["产品参考图", "主场景图", "风格参考图"]);
+    expect(buildJobReferences(job).map(item => item.name)).toEqual(["产品参考图", "主场景图"]);
   });
 
   it("creates a lightweight master-scene snapshot before a derived request", async () => {
