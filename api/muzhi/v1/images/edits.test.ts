@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import handler from "./edits.js";
+import handler, { getMuzhiEditsUrl } from "./edits.js";
 
 const createRequest = (body: unknown) => {
   const request = new EventEmitter() as EventEmitter & { method: string };
@@ -29,6 +29,11 @@ const createResponse = () => {
 describe("Muzhi edits proxy", () => {
   beforeEach(() => {
     process.env.MUZHI_API_KEY = "test-key";
+    delete process.env.MUZHI_EDITS_URL;
+  });
+
+  it("falls back to the official endpoint when the configured URL is invalid", () => {
+    expect(getMuzhiEditsUrl("encrypted-value").toString()).toBe("https://api.muzhi.ai/v1/images/edits");
   });
 
   it("forwards response_format so b64_json is returned instead of an opaque URL", async () => {

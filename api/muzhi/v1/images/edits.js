@@ -22,6 +22,16 @@ const dataUrlToFile = (dataUrl, filename) => {
   return new File([bytes], `${filename}.${extension}`, { type: mimeType });
 };
 
+export const getMuzhiEditsUrl = value => {
+  const fallback = "https://api.muzhi.ai/v1/images/edits";
+  try {
+    const url = new URL(value || fallback);
+    return ["http:", "https:"].includes(url.protocol) ? url : new URL(fallback);
+  } catch {
+    return new URL(fallback);
+  }
+};
+
 export default async function handler(request, response) {
   if (request.method !== "POST") {
     response.setHeader("Allow", "POST");
@@ -68,7 +78,7 @@ export default async function handler(request, response) {
     }
   });
 
-  const editsUrl = new URL(process.env.MUZHI_EDITS_URL || "https://api.muzhi.ai/v1/images/edits");
+  const editsUrl = getMuzhiEditsUrl(process.env.MUZHI_EDITS_URL);
   if (body.response_format) {
     editsUrl.searchParams.set("response_format", body.response_format);
   }
