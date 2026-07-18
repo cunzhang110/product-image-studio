@@ -37,14 +37,14 @@ describe("OpenRouter proxy payload", () => {
     expect(delays).toEqual([1500, 3500]);
   });
 
-  it("explains exhausted Gemma free-model rate limits in Chinese", () => {
+  it("explains exhausted Qwen provider rate limits in Chinese", () => {
     const body = JSON.stringify({
       error: {
         message: "Provider returned error",
-        metadata: { raw: "google/gemma-4-31b-it:free is temporarily rate-limited upstream." }
+        metadata: { raw: "qwen/qwen3.5-9b is temporarily rate-limited upstream." }
       }
     });
 
-    expect(getOpenRouterErrorMessage(429, body)).toContain("Gemma 免费模型当前繁忙");
+    expect(getOpenRouterErrorMessage(429, body)).toContain("Qwen3.5 模型当前繁忙");
   });
 });

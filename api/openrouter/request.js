@@ -1,4 +1,4 @@
-export const OPENROUTER_PROMPT_MODEL = "google/gemma-4-31b-it:free";
+export const OPENROUTER_PROMPT_MODEL = "qwen/qwen3.5-9b";
 
 export const buildOpenRouterPayload = (body = {}) => ({
   ...body,
@@ -30,15 +30,15 @@ export const getOpenRouterErrorMessage = (status, bodyText) => {
   try {
     const data = JSON.parse(bodyText);
     if (status === 429) {
-      return "Gemma 免费模型当前繁忙，系统已自动重试 3 次。请稍等一两分钟后再生成提示词。";
+      return "Qwen3.5 模型当前繁忙，系统已自动重试 3 次。请稍等一两分钟后再生成提示词。";
     }
     if (status === 503) {
-      return "Gemma 免费模型暂时不可用，系统已自动重试。请稍后再试。";
+      return "Qwen3.5 模型暂时不可用，系统已自动重试。请稍后再试。";
     }
     return data?.error?.metadata?.raw || data?.error?.message || `OpenRouter 请求失败 (${status})`;
   } catch {
     return status === 429
-      ? "Gemma 免费模型当前繁忙，请稍后再试。"
+      ? "Qwen3.5 模型当前繁忙，请稍后再试。"
       : `OpenRouter 请求失败 (${status})`;
   }
 };

@@ -52,10 +52,10 @@ const ASPECT_RATIOS = ["1:1", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9"];
 
 const imageFileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
-  reader.onerror = () => reject(new Error("读取产品图失败"));
+  reader.onerror = () => reject(new Error("读取参考图失败"));
   reader.onload = () => {
     const image = new Image();
-    image.onerror = () => reject(new Error("产品图格式无法识别"));
+    image.onerror = () => reject(new Error("参考图格式无法识别"));
     image.onload = () => {
       const maxSide = 1600;
       const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
@@ -143,7 +143,7 @@ const App: React.FC = () => {
   };
 
   const validatePromptInput = (batch: ProductBatch) => {
-    if (!batch.referenceImage) throw new Error("请先上传一张产品参考图");
+    if (!batch.styleReferenceImage) throw new Error("请先上传一张风格参考图");
     if (!batch.name.trim()) throw new Error("请填写产品或批次名称");
     if (!batch.promptTemplate.trim() && !batch.creativeGuide.trim()) {
       throw new Error("提示词模板和创作引导至少填写一项");
@@ -152,7 +152,7 @@ const App: React.FC = () => {
 
   const requestPrompts = async (batch: ProductBatch, count: number) => generateProductPrompts({
     productName: batch.name,
-    referenceImage: batch.referenceImage,
+    styleReferenceImage: batch.styleReferenceImage,
     promptTemplate: batch.promptTemplate,
     creativeGuide: batch.creativeGuide,
     count
@@ -215,19 +215,20 @@ const App: React.FC = () => {
       jobs,
       batch.concurrency,
       async job => {
-        const reference = {
-          id: "product-reference",
-          name: "产品参考图",
-          imageData: job.referenceImageSnapshot
-        };
+        const references = [
+          { id: "product-reference", name: "产品参考图", imageData: job.productReferenceImageSnapshot },
+          ...(job.styleReferenceImageSnapshot
+            ? [{ id: "style-reference", name: "风格参考图", imageData: job.styleReferenceImageSnapshot }]
+            : [])
+        ];
         return generateImage(
           job.promptSnapshot,
           job.aspectRatio,
           job.imageSize,
           job.provider,
-          [reference],
+          references,
           job.model,
-          `@{产品参考图} ${job.promptSnapshot}`
+          `@{产品参考图} 是最高优先级主体约束，必须完全保持产品外观、包装、Logo、文字和结构一致。@{风格参考图} 只参考构图、光线、色彩和调性，不得改变产品。${job.promptSnapshot}`
         );
       },
       nextJobs => updateBatch(batch.id, current => ({ ...current, images: nextJobs, stage: "results" }))
@@ -240,7 +241,7 @@ const App: React.FC = () => {
 
   const handleGenerateImages = async () => {
     if (!activeBatch || imageRunning) return;
-    if (!activeBatch.referenceImage) return showToast("产品参考图已缺失，请重新上传", "error");
+    if (!activeBatch.productReferenceImage) return showToast("请先上传产品参考图再开始生图", "error");
     const jobs = createImageJobs(activeBatch);
     if (!jobs.length) return showToast("请先选择至少一条提示词", "error");
     await runJobs(activeBatch, jobs);
@@ -252,8 +253,21 @@ const App: React.FC = () => {
     const otherJobs = activeBatch.images.filter(item => item.id !== job.id);
     updateBatch(activeBatch.id, batch => ({ ...batch, images: [...otherJobs, retryJob] }));
     const result = await runProductImageJobs([retryJob], 1, async current => {
-      const reference = { id: "product-reference", name: "产品参考图", imageData: current.referenceImageSnapshot };
-      return generateImage(current.promptSnapshot, current.aspectRatio, current.imageSize, current.provider, [reference], current.model, `@{产品参考图} ${current.promptSnapshot}`);
+      const references = [
+        { id: "product-reference", name: "产品参考图", imageData: current.productReferenceImageSnapshot },
+        ...(current.styleReferenceImageSnapshot
+          ? [{ id: "style-reference", name: "风格参考图", imageData: current.styleReferenceImageSnapshot }]
+          : [])
+      ];
+      return generateImage(
+        current.promptSnapshot,
+        current.aspectRatio,
+        current.imageSize,
+        current.provider,
+        references,
+        current.model,
+        `@{产品参考图} 是最高优先级主体约束，必须保持产品完全一致。@{风格参考图} 只参考画面调性，不得改变产品。${current.promptSnapshot}`
+      );
     });
     updateBatch(activeBatch.id, batch => ({
       ...batch,
@@ -309,7 +323,7 @@ const App: React.FC = () => {
           <div className="batch-list">
             {batches.map(batch => (
               <button key={batch.id} className={`batch-item ${batch.id === activeBatch.id ? "active" : ""}`} onClick={() => setActiveBatchId(batch.id)}>
-                <span className="batch-thumb">{batch.referenceImage ? <img src={batch.referenceImage} alt="" /> : <Boxes size={18} />}</span>
+                <span className="batch-thumb">{batch.productReferenceImage || batch.styleReferenceImage ? <img src={batch.productReferenceImage || batch.styleReferenceImage} alt="" /> : <Boxes size={18} />}</span>
                 <span className="batch-copy"><strong>{batch.name || "未命名产品"}</strong><small>{batch.prompts.length} 条提示词 · {batch.images.filter(item => item.status === "completed").length} 张完成</small></span>
                 <ChevronRight size={14} />
               </button>
@@ -342,10 +356,18 @@ const App: React.FC = () => {
               batch={activeBatch}
               loading={promptLoading}
               onPatch={patchActiveBatch}
-              onImageSelected={async file => {
+              onStyleImageSelected={async file => {
                 try {
-                  const referenceImage = await imageFileToDataUrl(file);
-                  patchActiveBatch({ referenceImage });
+                  const styleReferenceImage = await imageFileToDataUrl(file);
+                  patchActiveBatch({ styleReferenceImage });
+                } catch (error) {
+                  showToast(error instanceof Error ? error.message : "风格图处理失败", "error");
+                }
+              }}
+              onProductImageSelected={async file => {
+                try {
+                  const productReferenceImage = await imageFileToDataUrl(file);
+                  patchActiveBatch({ productReferenceImage });
                 } catch (error) {
                   showToast(error instanceof Error ? error.message : "产品图处理失败", "error");
                 }
@@ -376,7 +398,7 @@ const App: React.FC = () => {
 
           <div className="setting-group">
             <label>提示词 AI</label>
-            <div className="fixed-provider"><Sparkles size={15} /><span><strong>OpenRouter</strong><small>Gemma 4 · 31B · 免费模型</small></span></div>
+            <div className="fixed-provider"><Sparkles size={15} /><span><strong>OpenRouter</strong><small>Qwen3.5 · 9B · 视觉模型</small></span></div>
             <div className="model-line"><span>{activeBatch.promptModel}</span></div>
           </div>
 
@@ -402,7 +424,8 @@ const App: React.FC = () => {
           </div>
 
           <div className="execution-summary">
-            <div><span>产品参考图</span><strong>{activeBatch.referenceImage ? "已绑定" : "未上传"}</strong></div>
+            <div><span>风格参考图</span><strong>{activeBatch.styleReferenceImage ? "已绑定" : "未上传"}</strong></div>
+            <div><span>产品参考图</span><strong>{activeBatch.productReferenceImage ? "已绑定" : "未上传"}</strong></div>
             <div><span>提示词</span><strong>{activeBatch.prompts.length} 条</strong></div>
             <div><span>本次生图</span><strong>{selectedPromptCount} 张</strong></div>
             <div><span>已完成</span><strong>{completedCount} 张</strong></div>

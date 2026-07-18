@@ -1,6 +1,6 @@
 import type { AspectRatio, ImageSize, ServiceProvider } from "../types";
 
-export const OPENROUTER_PROMPT_MODEL = "google/gemma-4-31b-it:free";
+export const OPENROUTER_PROMPT_MODEL = "qwen/qwen3.5-9b";
 export type PromptProvider = "openrouter";
 export type BatchStage = "setup" | "review" | "results";
 export type PromptStatus = "ready" | "generating" | "failed";
@@ -21,7 +21,9 @@ export interface ImageGeneration {
   batchId: string;
   promptVariantId: string;
   promptSnapshot: string;
-  referenceImageSnapshot: string;
+  productReferenceImageSnapshot: string;
+  styleReferenceImageSnapshot: string;
+  referenceImageSnapshot?: string;
   provider: ServiceProvider;
   model: string;
   aspectRatio: AspectRatio;
@@ -35,7 +37,9 @@ export interface ImageGeneration {
 export interface ProductBatch {
   id: string;
   name: string;
-  referenceImage: string;
+  productReferenceImage: string;
+  styleReferenceImage: string;
+  referenceImage?: string;
   promptTemplate: string;
   creativeGuide: string;
   requestedPromptCount: number;
@@ -65,7 +69,8 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
   return {
     id: createId(),
     name: name.trim() || "未命名产品",
-    referenceImage: "",
+    productReferenceImage: "",
+    styleReferenceImage: "",
     promptTemplate: "",
     creativeGuide: "",
     requestedPromptCount: 12,
@@ -84,11 +89,22 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
   };
 };
 
-export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => ({
-  ...batch,
-  promptProvider: "openrouter",
-  promptModel: OPENROUTER_PROMPT_MODEL
-});
+export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => {
+  const productReferenceImage = batch.productReferenceImage || batch.referenceImage || "";
+  const styleReferenceImage = batch.styleReferenceImage || "";
+  return {
+    ...batch,
+    productReferenceImage,
+    styleReferenceImage,
+    promptProvider: "openrouter",
+    promptModel: OPENROUTER_PROMPT_MODEL,
+    images: (batch.images || []).map(image => ({
+      ...image,
+      productReferenceImageSnapshot: image.productReferenceImageSnapshot || image.referenceImageSnapshot || productReferenceImage,
+      styleReferenceImageSnapshot: image.styleReferenceImageSnapshot || styleReferenceImage
+    }))
+  };
+};
 
 const normalizePromptList = (items: unknown[]) => {
   const seen = new Set<string>();
@@ -134,7 +150,8 @@ export const createImageJobs = (batch: ProductBatch): ImageGeneration[] => {
       batchId: batch.id,
       promptVariantId: prompt.id,
       promptSnapshot: prompt.prompt.trim(),
-      referenceImageSnapshot: batch.referenceImage,
+      productReferenceImageSnapshot: batch.productReferenceImage,
+      styleReferenceImageSnapshot: batch.styleReferenceImage,
       provider: batch.imageProvider,
       model: batch.imageModel,
       aspectRatio: batch.aspectRatio,

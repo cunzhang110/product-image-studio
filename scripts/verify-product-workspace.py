@@ -9,6 +9,7 @@ def verify_page(page, width, height, screenshot_path):
     page.set_viewport_size({"width": width, "height": height})
     page.goto("http://127.0.0.1:4173", wait_until="networkidle")
     page.get_by_text("产品生图工作台", exact=True).wait_for()
+    page.get_by_text("上传风格参考图", exact=True).wait_for()
     page.get_by_text("上传产品参考图", exact=True).wait_for()
     page.get_by_text("提示词模板", exact=True).wait_for()
     page.get_by_text("创作引导", exact=True).wait_for()
@@ -58,7 +59,10 @@ with sync_playwright() as playwright:
     desktop.get_by_text("服务器已配置", exact=True).wait_for()
     desktop.get_by_role("button", name="取消").click()
 
-    desktop.locator('input[type="file"]').set_input_files(
+    desktop.locator('input[type="file"]').nth(0).set_input_files(
+        "/var/folders/gl/04kt1bt13yx4kwr8jckvbw0m0000gn/T/codex-clipboard-e901abd6-e133-4d7e-9bff-ac58a2e0f125.png"
+    )
+    desktop.locator('input[type="file"]').nth(1).set_input_files(
         "/var/folders/gl/04kt1bt13yx4kwr8jckvbw0m0000gn/T/codex-clipboard-e901abd6-e133-4d7e-9bff-ac58a2e0f125.png"
     )
     desktop.get_by_label("提示词模板").fill("保持产品包装、颜色、Logo 和文字完全一致")

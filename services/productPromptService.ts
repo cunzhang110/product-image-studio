@@ -2,7 +2,7 @@ import { OPENROUTER_PROMPT_MODEL, parsePromptList } from "../domain/productWorkf
 
 export interface ProductPromptInput {
   productName: string;
-  referenceImage: string;
+  styleReferenceImage: string;
   promptTemplate: string;
   creativeGuide: string;
   count: number;
@@ -14,17 +14,17 @@ type PromptRequest = {
 };
 
 const buildPromptInstruction = (input: ProductPromptInput) => [
-  `请围绕参考图中的“${input.productName || "产品"}”生成 ${input.count} 条可直接用于图片生成的中文提示词。`,
-  "所有提示词必须保持同一个产品的外形、颜色、包装、标签、Logo 和可见结构一致。",
-  "只描述参考图中能够确认的信息，不虚构背面、内部结构或不存在的配件。",
-  "每条提示词可以变化场景、构图、镜头、光线、摆放方式和人物互动，但产品始终是清晰主角。",
-  `提示词模板：${input.promptTemplate.trim() || "保持产品真实、清晰、可识别"}`,
+  `请参考风格参考图，为“${input.productName || "产品"}”生成 ${input.count} 条可直接用于图片生成的中文提示词。`,
+  "分析风格参考图的构图、光线、色彩、场景、镜头语言和整体调性，并将这些视觉特征转化为提示词。",
+  "风格参考图不是产品参考图，不要推断产品外观，也不要描述图中原有物品的品牌、Logo、包装和文字。",
+  "真正的产品参考图会在生图阶段另行提供；每条提示词都应要求以产品参考图中的产品为清晰主角，并保持其外观完全一致。",
+  `提示词模板：${input.promptTemplate.trim() || "保持产品参考图中的产品真实、清晰、可识别"}`,
   `创作引导：${input.creativeGuide.trim() || "在不同真实商业场景中变化画面"}`,
   "只返回 JSON 字符串数组，不要编号，不要解释，不要 Markdown。"
 ].join("\n");
 
 export const buildProductPromptRequest = (input: ProductPromptInput): PromptRequest => {
-  if (!input.referenceImage) throw new Error("请先上传产品参考图。");
+  if (!input.styleReferenceImage) throw new Error("请先上传风格参考图。");
   return {
     path: "/api/openrouter/chat/completions",
     body: {
@@ -33,12 +33,12 @@ export const buildProductPromptRequest = (input: ProductPromptInput): PromptRequ
       messages: [
         {
           role: "system",
-          content: "你是商业产品摄影提示词策划师。严格保持参考产品一致，只输出 JSON 字符串数组。"
+          content: "你是商业产品摄影提示词策划师。只从风格参考图提取视觉风格，不把图中原有物品当成最终产品，只输出 JSON 字符串数组。"
         },
         {
           role: "user",
           content: [
-            { type: "image_url", image_url: { url: input.referenceImage } },
+            { type: "image_url", image_url: { url: input.styleReferenceImage } },
             { type: "text", text: buildPromptInstruction(input) }
           ]
         }

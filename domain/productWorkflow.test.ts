@@ -2,26 +2,32 @@ import { describe, expect, it } from "vitest";
 import { createImageJobs, createProductBatch, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
-  it("creates a single-reference product batch", () => {
+  it("creates a dual-reference product batch with Qwen prompt generation", () => {
     const batch = createProductBatch("新品饮料");
 
     expect(batch.name).toBe("新品饮料");
-    expect(batch.referenceImage).toBe("");
+    expect(batch.styleReferenceImage).toBe("");
+    expect(batch.productReferenceImage).toBe("");
     expect(batch.prompts).toEqual([]);
     expect(batch.promptProvider).toBe("openrouter");
-    expect(batch.promptModel).toBe("google/gemma-4-31b-it:free");
+    expect(batch.promptModel).toBe("qwen/qwen3.5-9b");
   });
 
   it("migrates persisted prompt settings to the fixed OpenRouter model", () => {
     const legacy = {
       ...createProductBatch("旧批次"),
+      referenceImage: "data:image/png;base64,legacy-product",
+      productReferenceImage: undefined,
+      styleReferenceImage: undefined,
       promptProvider: "yunwu",
       promptModel: "gemini-3-pro-preview"
     } as any;
 
     expect(normalizeProductBatch(legacy)).toMatchObject({
       promptProvider: "openrouter",
-      promptModel: "google/gemma-4-31b-it:free"
+      promptModel: "qwen/qwen3.5-9b",
+      productReferenceImage: "data:image/png;base64,legacy-product",
+      styleReferenceImage: ""
     });
   });
 
@@ -38,7 +44,8 @@ describe("product workflow", () => {
 
   it("creates image jobs only for selected prompts", () => {
     const batch = createProductBatch("产品");
-    batch.referenceImage = "data:image/png;base64,abc";
+    batch.productReferenceImage = "data:image/png;base64,product";
+    batch.styleReferenceImage = "data:image/png;base64,style";
     batch.prompts = [
       { id: "p1", prompt: "A", selected: true, status: "ready", createdAt: 1, updatedAt: 1 },
       { id: "p2", prompt: "B", selected: false, status: "ready", createdAt: 1, updatedAt: 1 }
@@ -48,6 +55,7 @@ describe("product workflow", () => {
 
     expect(jobs).toHaveLength(1);
     expect(jobs[0].promptSnapshot).toBe("A");
-    expect(jobs[0].referenceImageSnapshot).toBe(batch.referenceImage);
+    expect(jobs[0].productReferenceImageSnapshot).toBe(batch.productReferenceImage);
+    expect(jobs[0].styleReferenceImageSnapshot).toBe(batch.styleReferenceImage);
   });
 });

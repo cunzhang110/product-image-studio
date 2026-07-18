@@ -33,7 +33,7 @@ export const ProviderSettings: React.FC<ProviderSettingsProps> = ({ open, onClos
         </div>
         <div className="provider-key-list">
           <div className="provider-key-row">
-            <span><strong>OpenRouter</strong><small>Gemma 4 31B 提示词模型，密钥由服务器管理</small></span>
+            <span><strong>OpenRouter</strong><small>Qwen3.5 9B 视觉提示词模型，密钥由服务器管理</small></span>
             <div className="server-key-state"><span className="status-dot" />服务器已配置</div>
           </div>
           {providers.map(provider => (
