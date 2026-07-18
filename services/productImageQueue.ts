@@ -21,7 +21,7 @@ export const buildJobReferences = (job: ImageGeneration): ReferenceImageItem[] =
 export const buildJobReferencePrompt = (job: ImageGeneration) => [
   "@{产品参考图} 是唯一产品视觉依据和最高优先级主体约束，必须完全保持产品颜色、透明度、材质、瓶型、瓶盖、包装、Logo、文字、比例和结构一致。",
   job.anchorReferenceImageSnapshot
-    ? "@{主场景图} 锁定环境、布景、道具、光线和产品位置，只改变提示词指定的机位。"
+    ? "@{主场景图} 锁定环境、布景、道具、光线和整体调性。严格按提示词执行机位或产品动作；提示词未要求变化的产品位置和状态保持不变。"
     : "",
   job.promptSnapshot
 ].filter(Boolean).join("");

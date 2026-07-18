@@ -69,6 +69,7 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
   onGenerate
 }) => {
   const customMap = batch.promptStrategy === "anchored-angles" && batch.sameSceneBranchMode === "custom-map";
+  const anchorLocked = batch.images.some(image => image.role === "anchor" && image.status === "completed");
   const plannedCount = getPlannedImageCount(batch);
   const actionLabel = loading
     ? "正在处理"
@@ -120,20 +121,20 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
       <div className="setup-fields">
         <div className="mode-grid">
           <div className="field-group"><span>操作模式</span><div className="segment-control two">
-            <button className={batch.workflowMode === "manual" ? "active" : ""} onClick={() => onPatch({ workflowMode: "manual" })}>手动</button>
-            <button className={batch.workflowMode === "automatic" ? "active" : ""} onClick={() => onPatch({ workflowMode: "automatic" })}>自动</button>
+            <button disabled={anchorLocked} className={batch.workflowMode === "manual" ? "active" : ""} onClick={() => onPatch({ workflowMode: "manual" })}>手动</button>
+            <button disabled={anchorLocked} className={batch.workflowMode === "automatic" ? "active" : ""} onClick={() => onPatch({ workflowMode: "automatic" })}>自动</button>
           </div></div>
           <div className="field-group"><span>生成方式</span><div className="segment-control two">
-            <button className={batch.promptStrategy === "varied-scenes" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "varied-scenes" })}>多场景创意</button>
-            <button className={batch.promptStrategy === "anchored-angles" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "anchored-angles" })}>同场景多机位</button>
+            <button disabled={anchorLocked} className={batch.promptStrategy === "varied-scenes" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "varied-scenes" })}>多场景创意</button>
+            <button disabled={anchorLocked} className={batch.promptStrategy === "anchored-angles" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "anchored-angles" })}>同场景多机位</button>
           </div></div>
         </div>
 
         {batch.promptStrategy === "anchored-angles" && <div className="field-group branch-mode-field">
           <span>同场景延伸方式</span>
           <div className="segment-control two">
-            <button className={batch.sameSceneBranchMode === "ai-random" ? "active" : ""} onClick={() => onPatch({ sameSceneBranchMode: "ai-random" })}>AI 随机延伸</button>
-            <button className={batch.sameSceneBranchMode === "custom-map" ? "active" : ""} onClick={useCustomMap}>自定义思维导图</button>
+            <button disabled={anchorLocked} className={batch.sameSceneBranchMode === "ai-random" ? "active" : ""} onClick={() => onPatch({ sameSceneBranchMode: "ai-random" })}>AI 随机延伸</button>
+            <button disabled={anchorLocked} className={batch.sameSceneBranchMode === "custom-map" ? "active" : ""} onClick={useCustomMap}>自定义思维导图</button>
           </div>
           <small>{batch.sameSceneBranchMode === "ai-random" ? "AI 根据主场景自动规划不同机位。" : "每个节点控制一张分支图，可指定机位、产品动作或两者同时变化。"}</small>
         </div>}

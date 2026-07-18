@@ -210,6 +210,31 @@ describe("product batch workflow", () => {
     expect(completed.images[1].anchorReferenceImageSnapshot).toBe(anchor.resultUrl);
   });
 
+  it("rejects empty custom nodes when continuing after the master scene", async () => {
+    const nodes = createDefaultWineExtensionNodes().slice(0, 1);
+    const deps = dependencies();
+    deps.generatePromptPlan = async () => ({
+      strategy: "anchored-angles",
+      sceneBible: "固定婚宴桌面",
+      anchorPrompt: "主场景",
+      anglePrompts: []
+    });
+    const paused = await startManualAnchoredBatch(batchWithRefs({
+      promptStrategy: "anchored-angles",
+      sameSceneBranchMode: "custom-map",
+      extensionNodes: nodes
+    }), deps, vi.fn());
+
+    await expect(continueManualAnchoredBatch({
+      ...paused,
+      extensionNodes: [{ ...nodes[0], instruction: "" }]
+    }, deps, vi.fn())).rejects.toThrow("请填写第 1 个延伸节点的指令");
+    await expect(continueManualAnchoredBatch({
+      ...paused,
+      extensionNodes: []
+    }, deps, vi.fn())).rejects.toThrow("请至少添加一个延伸节点");
+  });
+
   it("resumes custom branches from the latest node map and keeps unchanged completed work", async () => {
     const nodes = createDefaultWineExtensionNodes().slice(0, 2);
     const deps = dependencies();

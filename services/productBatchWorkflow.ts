@@ -40,6 +40,13 @@ const jobsForAnchoredBatch = (batch: ProductBatch) => createImageJobs(batch).map
   role: index === 0 ? "anchor" as const : "derived" as const
 }));
 
+const validateCustomBranches = (batch: ProductBatch) => {
+  if (batch.sameSceneBranchMode !== "custom-map") return;
+  if (!batch.extensionNodes.length) throw new Error("请至少添加一个延伸节点");
+  const emptyIndex = batch.extensionNodes.findIndex(node => !node.instruction.trim());
+  if (emptyIndex >= 0) throw new Error(`请填写第 ${emptyIndex + 1} 个延伸节点的指令`);
+};
+
 const finishFromJobs = (batch: ProductBatch, images: ImageGeneration[], onUpdate: BatchUpdate) => emit({
   ...batch,
   images,
@@ -155,6 +162,7 @@ export const continueManualAnchoredBatch = async (
   onUpdate: BatchUpdate,
   signal?: AbortSignal
 ): Promise<ProductBatch> => {
+  validateCustomBranches(input);
   const anchor = input.images.find(image => image.role === "anchor" && image.status === "completed" && image.resultUrl);
   if (!anchor?.resultUrl) throw new Error("请先生成并确认主场景图。");
   const refreshedInput = input.sameSceneBranchMode === "custom-map"

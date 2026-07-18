@@ -74,6 +74,20 @@ describe("product image queue", () => {
     expect(prompt).not.toContain("风格参考图");
   });
 
+  it("allows a derived prompt to request product actions while keeping the scene locked", () => {
+    const job = {
+      ...makeJob("action"),
+      role: "derived" as const,
+      anchorReferenceImageSnapshot: "data:image/png;base64,anchor",
+      promptSnapshot: "允许产品位置、人物手势和使用状态按指令变化；人物手持酒瓶。"
+    };
+    const prompt = buildJobReferencePrompt(job);
+
+    expect(prompt).toContain("严格按提示词执行机位或产品动作");
+    expect(prompt).toContain("提示词未要求变化的产品位置和状态保持不变");
+    expect(prompt).not.toContain("锁定环境、布景、道具、光线和产品位置，只改变提示词指定的机位");
+  });
+
   it("creates a lightweight master-scene snapshot before a derived request", async () => {
     const job = { ...makeJob("derived"), provider: "muzhi" as const, model: "gpt-image-2", role: "derived" as const, anchorReferenceImageSnapshot: "data:image/png;base64,very-large-anchor" };
     const optimize = async (image: string) => image.includes("very-large-anchor")
