@@ -58,6 +58,7 @@ export default async function handler(request, response) {
   if (body.background) formData.set("background", body.background);
   if (body.input_fidelity) formData.set("input_fidelity", body.input_fidelity);
   if (body.output_format) formData.set("output_format", body.output_format);
+  if (body.response_format) formData.set("response_format", body.response_format);
   if (body.moderation) formData.set("moderation", body.moderation);
 
   images.forEach((imageDataUrl, index) => {
@@ -67,10 +68,13 @@ export default async function handler(request, response) {
     }
   });
 
-  const editsUrl = process.env.MUZHI_EDITS_URL || "https://api.muzhi.ai/v1/images/edits";
+  const editsUrl = new URL(process.env.MUZHI_EDITS_URL || "https://api.muzhi.ai/v1/images/edits");
+  if (body.response_format) {
+    editsUrl.searchParams.set("response_format", body.response_format);
+  }
 
   try {
-    const upstream = await fetch(editsUrl, {
+    const upstream = await fetch(editsUrl.toString(), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`

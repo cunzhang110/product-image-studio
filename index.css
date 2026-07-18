@@ -164,6 +164,7 @@ img { display: block; max-width: 100%; }
 .result-media img { width: 100%; height: 100%; object-fit: contain; }
 .result-placeholder { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #8390a2; font-size: 12px; }
 .result-placeholder.failed { color: var(--red); background: #fff5f5; }
+.result-placeholder.failed span { max-width: min(88%, 360px); overflow-wrap: anywhere; text-align: center; line-height: 1.55; }
 .result-number { position: absolute; top: 8px; left: 8px; min-width: 28px; padding: 4px 6px; color: #fff; background: rgba(18,25,37,.82); border-radius: 5px; font-size: 8px; font-weight: 900; text-align: center; }
 .result-item > p { height: 62px; margin: 0; padding: 10px 11px; overflow: hidden; color: #566276; border-top: 1px solid var(--soft-line); font-size: 12px; line-height: 1.55; }
 .result-footer { justify-content: space-between; min-height: 40px; padding: 6px 10px; border-top: 1px solid var(--soft-line); }

@@ -515,7 +515,8 @@ const buildMuzhiReferencePrompt = (prompt: string, referencedImages: ReferenceIm
 
 const extractDirectImageUrl = (response: MuzhiImageGenerationResponse) => {
   const firstDataItem = (Array.isArray(response.data) ? response.data[0] : response.data) as Record<string, unknown> | undefined;
-  return response.url || response.image_url || String(firstDataItem?.url || firstDataItem?.image_url || "");
+  const candidate = response.url || response.image_url || String(firstDataItem?.url || firstDataItem?.image_url || "");
+  return /^https?:\/\//i.test(candidate) ? candidate : "";
 };
 
 const extractDirectImageBase64 = (response: MuzhiImageGenerationResponse) => {
@@ -558,6 +559,11 @@ const generateMuzhiImage = async (
   const imageUrl = extractDirectImageUrl(response);
   if (imageUrl) {
     return await fetchImageAsDataUrl(imageUrl);
+  }
+
+  const firstDataItem = (Array.isArray(response.data) ? response.data[0] : response.data) as Record<string, unknown> | undefined;
+  if (firstDataItem?.url) {
+    throw createError("Muzhi 返回了无法下载的图片数据，请稍后重试。若持续出现，请联系服务商检查图片返回格式。");
   }
 
   const taskId = response.task_id
