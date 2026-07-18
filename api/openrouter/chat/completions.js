@@ -1,4 +1,8 @@
-import { buildOpenRouterPayload } from "../request.js";
+import {
+  buildOpenRouterPayload,
+  getOpenRouterErrorMessage,
+  requestOpenRouterWithRetry
+} from "../request.js";
 
 const readJsonBody = async request => {
   if (request.body && typeof request.body === "object") return request.body;
@@ -22,7 +26,7 @@ export default async function handler(request, response) {
 
   try {
     const payload = buildOpenRouterPayload(await readJsonBody(request));
-    const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const upstream = await requestOpenRouterWithRetry(fetch, "https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -32,8 +36,14 @@ export default async function handler(request, response) {
       },
       body: JSON.stringify(payload)
     });
-    const contentType = upstream.headers.get("content-type") || "application/json; charset=utf-8";
     const upstreamBody = Buffer.from(await upstream.arrayBuffer());
+    if (!upstream.ok) {
+      response.status(upstream.status).json({
+        error: { message: getOpenRouterErrorMessage(upstream.status, upstreamBody.toString("utf8")) }
+      });
+      return;
+    }
+    const contentType = upstream.headers.get("content-type") || "application/json; charset=utf-8";
     response.status(upstream.status);
     response.setHeader("Content-Type", contentType);
     response.send(upstreamBody);
