@@ -1,5 +1,7 @@
 import { normalizeProductBatch, type ProductBatch } from "../domain/productWorkflow";
 
+const PROMPT_TEMPLATE_PREFERENCE_ID = "prompt-template-preference";
+
 export const initDB = () => {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('GeminiImageDB', 2);
@@ -38,6 +40,28 @@ export const loadProductBatchesFromDB = async (): Promise<ProductBatch[]> => {
     const tx = db.transaction('productBatches', 'readonly');
     const request = tx.objectStore('productBatches').getAll();
     request.onsuccess = () => resolve((request.result as ProductBatch[]).map(normalizeProductBatch));
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const savePromptTemplatePreference = async (promptTemplate: string) => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("settings", "readwrite");
+    tx.objectStore("settings").put({ id: PROMPT_TEMPLATE_PREFERENCE_ID, promptTemplate });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const loadPromptTemplatePreference = async (): Promise<string | null> => {
+  const db = await initDB();
+  return new Promise<string | null>((resolve, reject) => {
+    const tx = db.transaction("settings", "readonly");
+    const request = tx.objectStore("settings").get(PROMPT_TEMPLATE_PREFERENCE_ID);
+    request.onsuccess = () => resolve(request.result
+      ? String(request.result.promptTemplate ?? "")
+      : null);
     request.onerror = () => reject(request.error);
   });
 };

@@ -20,6 +20,7 @@ import { PromptReview } from "./components/PromptReview";
 import { ProviderSettings } from "./components/ProviderSettings";
 import { ResultGallery } from "./components/ResultGallery";
 import {
+  DEFAULT_PRODUCT_PROMPT_TEMPLATE,
   createImageJobs,
   createProductBatch,
   applyProductReferenceFilename,
@@ -35,7 +36,12 @@ import { buildJobReferencePrompt, isGenerationAbort, prepareJobReferencesForRequ
 import { generateProductPromptPlan, generateProductPrompts } from "./services/productPromptService";
 import { continueManualAnchoredBatch, resumeProductBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./services/productBatchWorkflow";
 import type { ImageSize, ServiceProvider } from "./types";
-import { loadProductBatchesFromDB, saveProductBatchesToDB } from "./utils/db";
+import {
+  loadProductBatchesFromDB,
+  loadPromptTemplatePreference,
+  saveProductBatchesToDB,
+  savePromptTemplatePreference
+} from "./utils/db";
 
 const IMAGE_MODELS: Record<ServiceProvider, string> = {
   yunwu: "gemini-3.1-flash-image-preview",
@@ -81,6 +87,7 @@ const App: React.FC = () => {
   const initialBatchRef = useRef(createProductBatch("我的产品批次"));
   const [batches, setBatches] = useState<ProductBatch[]>([initialBatchRef.current]);
   const [activeBatchId, setActiveBatchId] = useState(initialBatchRef.current.id);
+  const [promptTemplatePreference, setPromptTemplatePreference] = useState(DEFAULT_PRODUCT_PROMPT_TEMPLATE);
   const [hydrated, setHydrated] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [promptLoading, setPromptLoading] = useState(false);
@@ -97,11 +104,17 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
-    loadProductBatchesFromDB()
-      .then(stored => {
-        if (stored.length) {
-          setBatches(stored);
-          setActiveBatchId(stored[0].id);
+    Promise.all([loadProductBatchesFromDB(), loadPromptTemplatePreference()])
+      .then(([storedBatches, storedPreference]) => {
+        const preference = storedPreference ?? DEFAULT_PRODUCT_PROMPT_TEMPLATE;
+        setPromptTemplatePreference(preference);
+        if (storedBatches.length) {
+          setBatches(storedBatches);
+          setActiveBatchId(storedBatches[0].id);
+        } else {
+          const initialBatch = createProductBatch("我的产品批次", preference);
+          setBatches([initialBatch]);
+          setActiveBatchId(initialBatch.id);
         }
       })
       .finally(() => setHydrated(true));
@@ -150,8 +163,14 @@ const App: React.FC = () => {
     updateBatch(activeBatch.id, batch => ({ ...batch, ...patch }));
   };
 
+  const updatePromptTemplate = (promptTemplate: string) => {
+    patchActiveBatch({ promptTemplate });
+    setPromptTemplatePreference(promptTemplate);
+    void savePromptTemplatePreference(promptTemplate);
+  };
+
   const createBatch = () => {
-    const next = createProductBatch(`产品批次 ${batches.length + 1}`);
+    const next = createProductBatch(`产品批次 ${batches.length + 1}`, promptTemplatePreference);
     setBatches(current => [next, ...current]);
     setActiveBatchId(next.id);
   };
@@ -159,7 +178,7 @@ const App: React.FC = () => {
   const deleteBatch = (batchId: string) => {
     if (!window.confirm("确定删除当前产品批次吗？其中的提示词和生图结果也会一起删除。")) return;
     if (batches.length === 1) {
-      const next = createProductBatch("我的产品批次");
+      const next = createProductBatch("我的产品批次", promptTemplatePreference);
       setBatches([next]);
       setActiveBatchId(next.id);
       return;
@@ -500,7 +519,13 @@ const App: React.FC = () => {
             <ProductSetup
               batch={activeBatch}
               loading={generationActive}
-              onPatch={patchActiveBatch}
+              onPatch={patch => {
+                if (typeof patch.promptTemplate === "string") {
+                  updatePromptTemplate(patch.promptTemplate);
+                  return;
+                }
+                patchActiveBatch(patch);
+              }}
               onStyleImageSelected={async file => {
                 try {
                   const styleReferenceImage = await imageFileToDataUrl(file);
