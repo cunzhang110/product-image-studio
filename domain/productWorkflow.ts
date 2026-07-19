@@ -14,6 +14,8 @@ export type BatchNameSource = "automatic" | "manual";
 export type ImageGenerationRole = "standard" | "anchor" | "derived";
 export type BatchStatusTone = "gray" | "purple" | "blue" | "orange" | "green" | "red";
 
+export const DEFAULT_PRODUCT_PROMPT_TEMPLATE = "保留酒瓶产品，并确保酒瓶完整清晰地出现在画面中。酒瓶不能缺失、细节清楚。场景替换为【XXX】。使用 iPhone 后置镜头拍摄，符合现实世界逻辑，呈现自然、透亮、生活化的日常快照质感，风格简约、松弛、真实。";
+
 export interface BatchDisplayStatus {
   tone: BatchStatusTone;
   label: string;
@@ -94,7 +96,10 @@ const createId = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
-export const createProductBatch = (name = "未命名产品"): ProductBatch => {
+export const createProductBatch = (
+  name = "未命名产品",
+  promptTemplate = DEFAULT_PRODUCT_PROMPT_TEMPLATE
+): ProductBatch => {
   const now = Date.now();
   return {
     id: createId(),
@@ -102,7 +107,7 @@ export const createProductBatch = (name = "未命名产品"): ProductBatch => {
     nameSource: "automatic",
     productReferenceImage: "",
     styleReferenceImage: "",
-    promptTemplate: "",
+    promptTemplate,
     creativeGuide: "",
     requestedPromptCount: 12,
     promptProvider: "openrouter",

@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { applyProductReferenceFilename, buildCustomAnchoredPrompts, buildCustomBranchPrompt, createDefaultWineExtensionNodes, createImageJobs, createProductBatch, getBatchDisplayStatus, getImageRunPhase, getPlannedImageCount, normalizeProductBatch, parsePromptList } from "./productWorkflow";
+import { applyProductReferenceFilename, buildCustomAnchoredPrompts, buildCustomBranchPrompt, createDefaultWineExtensionNodes, createImageJobs, createProductBatch, DEFAULT_PRODUCT_PROMPT_TEMPLATE, getBatchDisplayStatus, getImageRunPhase, getPlannedImageCount, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
+  it("uses the wine template for new batches and accepts an explicit preference", () => {
+    expect(createProductBatch().promptTemplate).toBe(DEFAULT_PRODUCT_PROMPT_TEMPLATE);
+    expect(createProductBatch("产品", "用户模板").promptTemplate).toBe("用户模板");
+    expect(createProductBatch("产品", "").promptTemplate).toBe("");
+    expect(createProductBatch().creativeGuide).toBe("");
+  });
+
   it("creates a dual-reference product batch with Qwen prompt generation", () => {
     const batch = createProductBatch("新品饮料");
 
