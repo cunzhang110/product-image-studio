@@ -51,9 +51,17 @@ img { display: block; max-width: 100%; }
 .topbar-status { justify-content: center; gap: 10px; font-size: 12px; color: #a9b6c8; white-space: nowrap; }
 .topbar-status span { display: flex; align-items: center; gap: 6px; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #21c68b; box-shadow: 0 0 0 3px rgba(33,198,139,.12); }
+.status-dot.error { background: #ef6a72; box-shadow: 0 0 0 3px rgba(239,106,114,.14); }
 .topbar-divider { width: 1px; height: 16px; background: #344055; }
 .topbar-button { justify-self: end; gap: 7px; height: 38px; padding: 0 14px; color: #dce5f1; background: #20293a; border: 1px solid #354057; border-radius: 6px; font-size: 13px; font-weight: 700; }
 .topbar-button:hover { background: #293449; }
+
+.workspace-load-state { min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; padding: 28px; color: #8f2931; text-align: center; }
+.workspace-load-state h1 { margin: 0; color: var(--ink); font-size: 22px; letter-spacing: 0; }
+.workspace-load-state p { max-width: 520px; margin: 0 0 6px; color: var(--muted); font-size: 14px; line-height: 1.7; }
+.workspace-load-state .primary-button { min-height: 40px; padding: 0 15px; display: inline-flex; align-items: center; gap: 7px; }
+.persistence-alert { position: fixed; top: 68px; right: 16px; z-index: 100; max-width: min(560px, calc(100vw - 32px)); padding: 11px 14px; display: flex; align-items: flex-start; gap: 8px; color: #8f2931; background: #fff1f2; border: 1px solid #f2b8bd; border-radius: 7px; box-shadow: 0 8px 24px rgba(84,24,30,.12); font-size: 12px; font-weight: 800; line-height: 1.5; }
+.persistence-alert svg { flex: 0 0 auto; margin-top: 1px; }
 
 .studio-layout { min-height: calc(100vh - 58px); display: grid; grid-template-columns: 248px minmax(0, 1fr) 310px; }
 .batch-rail { position: sticky; top: 58px; height: calc(100vh - 58px); display: flex; flex-direction: column; padding: 15px 12px; background: #eef1f4; border-right: 1px solid var(--line); overflow: hidden; }

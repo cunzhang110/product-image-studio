@@ -31,6 +31,30 @@
 - `npm run build`：passed。
 - `git diff --check`：passed。
 
+## Final Branch Review Remediation: Empty MIME Image Files
+
+### Root Cause
+
+`ReferenceUpload` treated only `image/*` MIME values as images. Browsers and operating systems can provide an empty `File.type` for valid image files, so supported files were silently ignored.
+
+### RED
+
+The final-review targeted run failed all new extension-domain cases with `isSupportedImageFile is not a function`, and the mounted component forwarded neither the empty-MIME HEIC input nor the empty-MIME AVIF drop.
+
+### GREEN
+
+- Added one shared domain predicate for click selection, drag inspection, and drop handling.
+- A non-empty MIME remains authoritative: explicit non-images are rejected even when their filenames use an image extension.
+- Empty MIME falls back to a case-insensitive allowlist: `png`, `jpg`, `jpeg`, `webp`, `gif`, `heic`, `heif`, `avif`, and `bmp`.
+- Domain coverage includes every extension, an empty filename, an extension-only filename, and explicit non-image MIME. Mounted component coverage includes empty-MIME input and drop paths.
+
+Verification:
+
+```text
+Targeted: 3 test files passed, 37 tests passed.
+Full suite: 11 test files passed, 77 tests passed.
+```
+
 ## 自审
 
 - 产品图点击上传和拖放都经由同一个 `onProductImageSelected` 回调，因此继续使用 App 中的 `applyProductReferenceFilename` 和已有的手动命名保护。

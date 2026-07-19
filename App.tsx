@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import {
+  AlertTriangle,
   Boxes,
   ChevronRight,
   Download,
@@ -8,6 +9,7 @@ import {
   KeyRound,
   Layers3,
   Plus,
+  RefreshCw,
   Settings2,
   Square,
   Sparkles,
@@ -94,6 +96,9 @@ const App: React.FC = () => {
   const [promptTemplatePreference, setPromptTemplatePreference] = useState(DEFAULT_PRODUCT_PROMPT_TEMPLATE);
   const [hydrated, setHydrated] = useState(false);
   const [canPersistBatches, setCanPersistBatches] = useState(false);
+  const [batchLoadFailed, setBatchLoadFailed] = useState(false);
+  const [batchPersistenceError, setBatchPersistenceError] = useState(false);
+  const [preferencePersistenceError, setPreferencePersistenceError] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [promptLoading, setPromptLoading] = useState(false);
   const [appending, setAppending] = useState(false);
@@ -102,36 +107,69 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(null);
   const activeRunControllerRef = useRef<AbortController | null>(null);
   const activeRunBatchIdRef = useRef<string | null>(null);
+  const mountedRef = useRef(false);
+  const hydrationAttemptRef = useRef(0);
+  const preferenceSaveAttemptRef = useRef(0);
 
   const activeBatch = useMemo(
     () => batches.find(batch => batch.id === activeBatchId) || batches[0],
     [batches, activeBatchId]
   );
 
-  useEffect(() => {
-    let cancelled = false;
-
+  const loadWorkspace = () => {
+    const attempt = ++hydrationAttemptRef.current;
+    setHydrated(false);
+    setCanPersistBatches(false);
+    setBatchLoadFailed(false);
     void hydrateProductWorkspace({
       loadBatches: loadProductBatchesFromDB,
       loadPreference: loadPromptTemplatePreference
     }).then(workspace => {
-      if (cancelled) return;
+      if (!mountedRef.current || attempt !== hydrationAttemptRef.current) return;
       setPromptTemplatePreference(workspace.promptTemplatePreference);
+      if (!workspace.canPersistBatches) {
+        setBatchLoadFailed(true);
+        setHydrated(true);
+        return;
+      }
       setBatches(workspace.batches);
       setActiveBatchId(workspace.batches[0].id);
-      setCanPersistBatches(workspace.canPersistBatches);
+      setCanPersistBatches(true);
+      setHydrated(true);
+    }).catch(() => {
+      if (!mountedRef.current || attempt !== hydrationAttemptRef.current) return;
+      setBatchLoadFailed(true);
       setHydrated(true);
     });
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    loadWorkspace();
 
     return () => {
-      cancelled = true;
+      mountedRef.current = false;
+      hydrationAttemptRef.current += 1;
     };
   }, []);
 
   useEffect(() => {
     if (!hydrated || !canPersistBatches) return;
-    const timer = window.setTimeout(() => saveProductBatchesToDB(batches), 250);
-    return () => window.clearTimeout(timer);
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void Promise.resolve()
+        .then(() => saveProductBatchesToDB(batches))
+        .then(() => {
+          if (active) setBatchPersistenceError(false);
+        })
+        .catch(() => {
+          if (active) setBatchPersistenceError(true);
+        });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, [batches, canPersistBatches, hydrated]);
 
   useEffect(() => {
@@ -174,7 +212,19 @@ const App: React.FC = () => {
   const updatePromptTemplate = (promptTemplate: string) => {
     patchActiveBatch({ promptTemplate });
     setPromptTemplatePreference(promptTemplate);
-    void savePromptTemplatePreference(promptTemplate);
+    const attempt = ++preferenceSaveAttemptRef.current;
+    void Promise.resolve()
+      .then(() => savePromptTemplatePreference(promptTemplate))
+      .then(() => {
+        if (mountedRef.current && attempt === preferenceSaveAttemptRef.current) {
+          setPreferencePersistenceError(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current && attempt === preferenceSaveAttemptRef.current) {
+          setPreferencePersistenceError(true);
+        }
+      });
   };
 
   const createBatch = () => {
@@ -467,6 +517,21 @@ const App: React.FC = () => {
     URL.revokeObjectURL(link.href);
   };
 
+  if (!hydrated) {
+    return <div className="app-shell" aria-busy="true" />;
+  }
+
+  if (batchLoadFailed) {
+    return (
+      <div className="app-shell workspace-load-state">
+        <AlertTriangle size={30} />
+        <h1>批次加载失败</h1>
+        <p>无法读取本地保存的产品批次。为避免覆盖已有数据，工作区已停止编辑和保存。</p>
+        <button className="primary-button" onClick={loadWorkspace}><RefreshCw size={16} />重试加载</button>
+      </div>
+    );
+  }
+
   if (!isProductWorkspaceReady(hydrated, activeBatch)) {
     return <div className="app-shell" aria-busy="true" />;
   }
@@ -475,6 +540,11 @@ const App: React.FC = () => {
   const completedCount = activeBatch.images.filter(image => image.status === "completed").length;
   const plannedImageCount = getPlannedImageCount(activeBatch);
   const generationActive = promptLoading || imageRunning || ["generating-prompts", "generating-anchor", "generating-images"].includes(activeBatch.runPhase);
+  const persistenceMessages = [
+    batchPersistenceError ? "批次自动保存失败，请检查浏览器存储后再次编辑以重试。" : "",
+    preferencePersistenceError ? "模板偏好保存失败，新批次可能无法继承本次修改。" : ""
+  ].filter(Boolean);
+  const hasPersistenceError = persistenceMessages.length > 0;
 
   return (
     <div className="app-shell">
@@ -484,12 +554,14 @@ const App: React.FC = () => {
           <div><strong>产品生图工作台</strong><span>Product Image Studio</span></div>
         </div>
         <div className="topbar-status">
-          <span><i className="status-dot" />本地自动保存</span>
+          <span><i className={`status-dot${hasPersistenceError ? " error" : ""}`} />{hasPersistenceError ? "本地保存异常" : "本地自动保存"}</span>
           <span className="topbar-divider" />
           <span>{PROVIDER_LABELS[activeBatch.imageProvider]} · {activeBatch.imageModel}</span>
         </div>
         <button className="topbar-button" onClick={() => setSettingsOpen(true)}><KeyRound size={16} />API 连接</button>
       </header>
+
+      {hasPersistenceError && <div className="persistence-alert" role="alert"><AlertTriangle size={16} />{persistenceMessages.join(" ")}</div>}
 
       <div className="studio-layout">
         <aside className="batch-rail">

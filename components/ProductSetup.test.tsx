@@ -103,6 +103,24 @@ describe("ProductSetup", () => {
     expect(onProductImageSelected).not.toHaveBeenCalled();
   });
 
+  it("accepts a known image extension when the browser leaves MIME empty", async () => {
+    const onProductImageSelected = vi.fn();
+    const { container } = await mountSetup({ onProductImageSelected });
+    const productCard = container.querySelector(".reference-card.product");
+    const input = container.querySelector<HTMLInputElement>(".reference-card.product input[type=\"file\"]");
+
+    expect(productCard).not.toBeNull();
+    expect(input).not.toBeNull();
+    await act(async () => {
+      dispatchFileChange(input!, new File(["image"], "bottle.HEIC", { type: "" }));
+      dispatchDrop(productCard!, [new File(["image"], "bottle.avif", { type: "" })]);
+    });
+
+    expect(onProductImageSelected).toHaveBeenCalledTimes(2);
+    expect(onProductImageSelected).toHaveBeenNthCalledWith(1, expect.objectContaining({ name: "bottle.HEIC" }));
+    expect(onProductImageSelected).toHaveBeenNthCalledWith(2, expect.objectContaining({ name: "bottle.avif" }));
+  });
+
   it("tracks drag-active state through enter, leave, and image or non-image drop", async () => {
     const onProductImageSelected = vi.fn();
     const { container } = await mountSetup({ onProductImageSelected });

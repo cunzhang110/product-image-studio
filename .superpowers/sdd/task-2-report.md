@@ -201,3 +201,46 @@ TypeScript: exited successfully with no output.
 ### Dependency change
 
 - Added `jsdom@^26.1.0` as a development-only dependency for the mounted DOM test environment.
+
+## Final Branch Review Remediation
+
+### Root Cause
+
+- Batch hydration represented a failed batch read as a temporary editable batch. Persistence was disabled, but the normal workspace still rendered, so users could make changes that could not be safely reconciled with stored data.
+- The debounced batch save and immediate template-preference save discarded their promises with `void`, leaving rejected writes unhandled and keeping the header's successful auto-save status visible.
+- Template inheritance had helper-level coverage but lacked mounted App interactions for new-batch creation and final-batch replacement.
+
+### RED
+
+Command:
+
+```sh
+npx vitest run App.hydration.test.tsx domain/productWorkflow.test.ts components/ProductSetup.test.tsx
+```
+
+Result before implementation:
+
+```text
+Test Files  3 failed (3)
+Tests  14 failed | 23 passed (37)
+```
+
+The mounted App rendered the normal editable workspace after a rejected batch read, neither rejected save displayed an alert, and the header continued to claim `本地自动保存`.
+
+### GREEN
+
+- Batch reads now gate the workspace. Failure renders `批次加载失败` with `重试加载`, leaves editing and saving unavailable, and repeated retry failures remain gated.
+- A successful retry restores the loaded batches and re-enables the debounced save effect.
+- Both save promises are caught. A deduplicated persistent alert replaces the healthy save status until a later save succeeds, then clears automatically.
+- Preference-read failure remains independent: stored batches render, while newly created batches use the built-in default template.
+- Mounted interactions verify that editing a template affects new-batch inheritance without changing another stored batch, and deleting the final batch creates a replacement with the edited preference.
+- Rejected batch and preference writes are observed with `unhandledRejection` listeners and produce no leaked rejection.
+
+Verification:
+
+```text
+Targeted: 3 test files passed, 37 tests passed.
+Full suite: 11 test files passed, 77 tests passed.
+TypeScript: npx tsc --noEmit passed with no output.
+Build: Vite transformed 1809 modules and completed successfully.
+```

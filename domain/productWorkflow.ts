@@ -16,6 +16,20 @@ export type BatchStatusTone = "gray" | "purple" | "blue" | "orange" | "green" | 
 
 export const DEFAULT_PRODUCT_PROMPT_TEMPLATE = "保留酒瓶产品，并确保酒瓶完整清晰地出现在画面中。酒瓶不能缺失、细节清楚。场景替换为【XXX】。使用 iPhone 后置镜头拍摄，符合现实世界逻辑，呈现自然、透亮、生活化的日常快照质感，风格简约、松弛、真实。";
 
+const SUPPORTED_IMAGE_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "webp", "gif", "heic", "heif", "avif", "bmp"
+]);
+
+export const isSupportedImageFile = (
+  file: { name?: string; type?: string } | null | undefined
+) => {
+  if (!file) return false;
+  const type = file.type?.trim().toLowerCase() || "";
+  if (type) return type.startsWith("image/");
+  const extension = file.name?.trim().match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  return Boolean(extension && SUPPORTED_IMAGE_EXTENSIONS.has(extension));
+};
+
 export interface BatchDisplayStatus {
   tone: BatchStatusTone;
   label: string;

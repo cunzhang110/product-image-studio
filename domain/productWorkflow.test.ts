@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { applyProductReferenceFilename, buildCustomAnchoredPrompts, buildCustomBranchPrompt, createDefaultWineExtensionNodes, createImageJobs, createProductBatch, DEFAULT_PRODUCT_PROMPT_TEMPLATE, getBatchDisplayStatus, getImageRunPhase, getPlannedImageCount, normalizeProductBatch, parsePromptList } from "./productWorkflow";
+import { applyProductReferenceFilename, buildCustomAnchoredPrompts, buildCustomBranchPrompt, createDefaultWineExtensionNodes, createImageJobs, createProductBatch, DEFAULT_PRODUCT_PROMPT_TEMPLATE, getBatchDisplayStatus, getImageRunPhase, getPlannedImageCount, isSupportedImageFile, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
+  it.each(["png", "jpg", "jpeg", "webp", "gif", "heic", "heif", "avif", "bmp"])(
+    "accepts a %s extension when the MIME type is empty",
+    extension => {
+      expect(isSupportedImageFile({ name: `product.${extension}`, type: "" })).toBe(true);
+    }
+  );
+
+  it("handles empty and extension-only filenames while rejecting explicit non-images", () => {
+    expect(isSupportedImageFile({ name: "", type: "" })).toBe(false);
+    expect(isSupportedImageFile({ name: ".png", type: "" })).toBe(true);
+    expect(isSupportedImageFile({ name: "product.png", type: "text/plain" })).toBe(false);
+    expect(isSupportedImageFile({ name: "", type: "image/png" })).toBe(true);
+  });
+
   it("uses the wine template for new batches and accepts an explicit preference", () => {
     expect(createProductBatch().promptTemplate).toBe(DEFAULT_PRODUCT_PROMPT_TEMPLATE);
     expect(createProductBatch("产品", "用户模板").promptTemplate).toBe("用户模板");

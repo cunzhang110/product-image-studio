@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { ImagePlus, PackageCheck, Palette, Sparkles, Upload, X } from "lucide-react";
-import { createDefaultWineExtensionNodes, getPlannedImageCount, type ProductBatch } from "../domain/productWorkflow";
+import { createDefaultWineExtensionNodes, getPlannedImageCount, isSupportedImageFile, type ProductBatch } from "../domain/productWorkflow";
 import { SceneExtensionEditor } from "./SceneExtensionEditor";
 
 interface ProductSetupProps {
@@ -27,9 +27,8 @@ const ReferenceUpload: React.FC<ReferenceUploadProps> = ({ kind, image, title, n
   const dragDepth = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const Icon = kind === "product" ? PackageCheck : Palette;
-  const isImageFile = (file: { type?: string } | null | undefined) => Boolean(file?.type?.startsWith("image/"));
   const selectImageFile = (file: File | undefined) => {
-    if (isImageFile(file)) onSelect(file);
+    if (isSupportedImageFile(file)) onSelect(file);
   };
   const resetDragState = () => {
     dragDepth.current = 0;
@@ -39,7 +38,7 @@ const ReferenceUpload: React.FC<ReferenceUploadProps> = ({ kind, image, title, n
     const { items } = event.dataTransfer;
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
-      if (item?.kind === "file" && isImageFile(item)) return true;
+      if (item?.kind === "file" && isSupportedImageFile(item)) return true;
     }
     return false;
   };
@@ -59,7 +58,7 @@ const ReferenceUpload: React.FC<ReferenceUploadProps> = ({ kind, image, title, n
     const { files } = event.dataTransfer;
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
-      if (isImageFile(file)) return selectImageFile(file);
+      if (isSupportedImageFile(file)) return selectImageFile(file);
     }
   };
 
