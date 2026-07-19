@@ -22,7 +22,6 @@ import { ResultGallery } from "./components/ResultGallery";
 import {
   DEFAULT_PRODUCT_PROMPT_TEMPLATE,
   createImageJobs,
-  createProductBatch,
   applyProductReferenceFilename,
   getBatchDisplayStatus,
   getImageRunPhase,
@@ -42,6 +41,11 @@ import {
   saveProductBatchesToDB,
   savePromptTemplatePreference
 } from "./utils/db";
+import {
+  createPreferredProductBatch,
+  hydrateProductWorkspace,
+  isProductWorkspaceReady
+} from "./utils/workspaceHydration";
 
 const IMAGE_MODELS: Record<ServiceProvider, string> = {
   yunwu: "gemini-3.1-flash-image-preview",
@@ -84,11 +88,12 @@ const imageFileToDataUrl = (file: File) => new Promise<string>((resolve, reject)
 });
 
 const App: React.FC = () => {
-  const initialBatchRef = useRef(createProductBatch("我的产品批次"));
+  const initialBatchRef = useRef(createPreferredProductBatch("我的产品批次", DEFAULT_PRODUCT_PROMPT_TEMPLATE));
   const [batches, setBatches] = useState<ProductBatch[]>([initialBatchRef.current]);
   const [activeBatchId, setActiveBatchId] = useState(initialBatchRef.current.id);
   const [promptTemplatePreference, setPromptTemplatePreference] = useState(DEFAULT_PRODUCT_PROMPT_TEMPLATE);
   const [hydrated, setHydrated] = useState(false);
+  const [canPersistBatches, setCanPersistBatches] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [promptLoading, setPromptLoading] = useState(false);
   const [appending, setAppending] = useState(false);
@@ -104,27 +109,30 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
-    Promise.all([loadProductBatchesFromDB(), loadPromptTemplatePreference()])
-      .then(([storedBatches, storedPreference]) => {
-        const preference = storedPreference ?? DEFAULT_PRODUCT_PROMPT_TEMPLATE;
-        setPromptTemplatePreference(preference);
-        if (storedBatches.length) {
-          setBatches(storedBatches);
-          setActiveBatchId(storedBatches[0].id);
-        } else {
-          const initialBatch = createProductBatch("我的产品批次", preference);
-          setBatches([initialBatch]);
-          setActiveBatchId(initialBatch.id);
-        }
-      })
-      .finally(() => setHydrated(true));
+    let cancelled = false;
+
+    void hydrateProductWorkspace({
+      loadBatches: loadProductBatchesFromDB,
+      loadPreference: loadPromptTemplatePreference
+    }).then(workspace => {
+      if (cancelled) return;
+      setPromptTemplatePreference(workspace.promptTemplatePreference);
+      setBatches(workspace.batches);
+      setActiveBatchId(workspace.batches[0].id);
+      setCanPersistBatches(workspace.canPersistBatches);
+      setHydrated(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !canPersistBatches) return;
     const timer = window.setTimeout(() => saveProductBatchesToDB(batches), 250);
     return () => window.clearTimeout(timer);
-  }, [batches, hydrated]);
+  }, [batches, canPersistBatches, hydrated]);
 
   useEffect(() => {
     if (!toast) return;
@@ -170,7 +178,7 @@ const App: React.FC = () => {
   };
 
   const createBatch = () => {
-    const next = createProductBatch(`产品批次 ${batches.length + 1}`, promptTemplatePreference);
+    const next = createPreferredProductBatch(`产品批次 ${batches.length + 1}`, promptTemplatePreference);
     setBatches(current => [next, ...current]);
     setActiveBatchId(next.id);
   };
@@ -178,7 +186,7 @@ const App: React.FC = () => {
   const deleteBatch = (batchId: string) => {
     if (!window.confirm("确定删除当前产品批次吗？其中的提示词和生图结果也会一起删除。")) return;
     if (batches.length === 1) {
-      const next = createProductBatch("我的产品批次", promptTemplatePreference);
+      const next = createPreferredProductBatch("我的产品批次", promptTemplatePreference);
       setBatches([next]);
       setActiveBatchId(next.id);
       return;
@@ -459,7 +467,9 @@ const App: React.FC = () => {
     URL.revokeObjectURL(link.href);
   };
 
-  if (!activeBatch) return null;
+  if (!isProductWorkspaceReady(hydrated, activeBatch)) {
+    return <div className="app-shell" aria-busy="true" />;
+  }
 
   const selectedPromptCount = activeBatch.prompts.filter(prompt => prompt.selected).length;
   const completedCount = activeBatch.images.filter(image => image.status === "completed").length;
