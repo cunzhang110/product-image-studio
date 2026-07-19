@@ -131,7 +131,6 @@ img { display: block; max-width: 100%; }
 .product-preview-actions { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
 .reference-note { margin-top: 11px; display: flex; align-items: center; gap: 8px; color: #667386; font-size: 12px; line-height: 1.5; }
 .setup-fields { display: flex; flex-direction: column; gap: 20px; }
-.mode-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .field-group { display: flex; flex-direction: column; gap: 8px; color: #475467; font-size: 13px; font-weight: 800; }
 .field-group input, .field-group textarea, .setting-row select { width: 100%; color: var(--ink); background: #fff; border: 1px solid #d6dde6; border-radius: 6px; outline: none; transition: border-color .15s, box-shadow .15s; }
 .field-group input { height: 44px; padding: 0 12px; font-size: 14px; }
@@ -143,6 +142,11 @@ img { display: block; max-width: 100%; }
 .count-control { height: 38px; display: grid; grid-template-columns: 38px 1fr 38px; overflow: hidden; border: 1px solid #d6dde6; border-radius: 6px; }
 .count-control button { color: #5c6879; background: #f3f5f7; border: 0; }
 .count-control input { height: 36px; padding: 0; border: 0; border-left: 1px solid #dfe4ea; border-right: 1px solid #dfe4ea; border-radius: 0; text-align: center; }
+
+.workflow-mode-block { padding: 14px; color: #475467; background: #f7f9fc; border: 1px solid #cfd9e6; border-radius: 7px; font-size: 13px; font-weight: 800; }
+.workflow-mode-control button { min-height: 42px; height: auto; overflow: visible; font-size: 13px; line-height: 1.25; text-overflow: clip; white-space: normal; }
+.generation-method-field { max-width: 520px; }
+.reference-card.drag-active { border-color: var(--blue); background: #f4f8ff; box-shadow: 0 0 0 2px rgba(37,99,235,.12); }
 
 .branch-mode-field { padding: 14px; background: #f7f9fc; border: 1px solid #dce3ec; border-radius: 7px; }
 .scene-map-editor { min-width: 0; padding-top: 4px; border-top: 1px solid #dfe5ec; }
@@ -281,7 +285,7 @@ img { display: block; max-width: 100%; }
 }
 
 @media (max-width: 760px) {
-  .mode-grid { grid-template-columns: 1fr; }
+  .workflow-mode-control { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar { height: 54px; grid-template-columns: 1fr auto; padding: 0 12px; }
   .brand-block span:not(.brand-mark), .topbar-status { display: none; }
   .topbar-button { width: 34px; padding: 0; justify-content: center; }

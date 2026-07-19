@@ -529,13 +529,7 @@ const App: React.FC = () => {
             <ProductSetup
               batch={activeBatch}
               loading={generationActive}
-              onPatch={patch => {
-                if (typeof patch.promptTemplate === "string") {
-                  updatePromptTemplate(patch.promptTemplate);
-                  return;
-                }
-                patchActiveBatch(patch);
-              }}
+              onPatch={patchActiveBatch}
               onStyleImageSelected={async file => {
                 try {
                   const styleReferenceImage = await imageFileToDataUrl(file);
@@ -552,6 +546,7 @@ const App: React.FC = () => {
                   showToast(error instanceof Error ? error.message : "产品图处理失败", "error");
                 }
               }}
+              onPromptTemplateChange={updatePromptTemplate}
               onGenerate={handleSetupStart}
             />
           )}

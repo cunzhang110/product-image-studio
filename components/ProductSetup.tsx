@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import { ImagePlus, PackageCheck, Palette, Sparkles, Upload, X } from "lucide-react";
 import { createDefaultWineExtensionNodes, getPlannedImageCount, type ProductBatch } from "../domain/productWorkflow";
 import { SceneExtensionEditor } from "./SceneExtensionEditor";
@@ -10,6 +10,7 @@ interface ProductSetupProps {
   onStyleImageSelected: (file: File) => void;
   onProductImageSelected: (file: File) => void;
   onGenerate: () => void;
+  onPromptTemplateChange: (promptTemplate: string) => void;
 }
 
 interface ReferenceUploadProps {
@@ -23,9 +24,49 @@ interface ReferenceUploadProps {
 
 const ReferenceUpload: React.FC<ReferenceUploadProps> = ({ kind, image, title, note, onSelect, onClear }) => {
   const fileRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
+  const [dragActive, setDragActive] = useState(false);
   const Icon = kind === "product" ? PackageCheck : Palette;
+  const isImageDrag = (event: React.DragEvent<HTMLDivElement>) => {
+    const { items } = event.dataTransfer;
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      if (item?.kind === "file" && item.type.startsWith("image/")) return true;
+    }
+    return false;
+  };
+  const handleDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragDepth.current += 1;
+    if (isImageDrag(event)) setDragActive(true);
+  };
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragActive(false);
+  };
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDragActive(false);
+    const { files } = event.dataTransfer;
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      if (file?.type.startsWith("image/")) {
+        onSelect(file);
+        return;
+      }
+    }
+  };
+
   return (
-    <div className={`reference-card ${kind}`}>
+    <div
+      className={`reference-card ${kind}${dragActive ? " drag-active" : ""}`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={event => event.preventDefault()}
+      onDrop={handleDrop}
+    >
       <div className="reference-label">
         <Icon size={16} />
         <span><strong>{title}</strong><small>{kind === "product" ? "主体最高优先级" : "用于生成提示词"}</small></span>
@@ -66,7 +107,8 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
   onPatch,
   onStyleImageSelected,
   onProductImageSelected,
-  onGenerate
+  onGenerate,
+  onPromptTemplateChange
 }) => {
   const customMap = batch.promptStrategy === "anchored-angles" && batch.sameSceneBranchMode === "custom-map";
   const anchorLocked = batch.images.some(image => image.role === "anchor" && image.status === "completed");
@@ -119,15 +161,20 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
       </div>
 
       <div className="setup-fields">
-        <div className="mode-grid">
-          <div className="field-group"><span>操作模式</span><div className="segment-control two">
-            <button disabled={anchorLocked} className={batch.workflowMode === "manual" ? "active" : ""} onClick={() => onPatch({ workflowMode: "manual" })}>手动</button>
-            <button disabled={anchorLocked} className={batch.workflowMode === "automatic" ? "active" : ""} onClick={() => onPatch({ workflowMode: "automatic" })}>自动</button>
-          </div></div>
-          <div className="field-group"><span>生成方式</span><div className="segment-control two">
+        <div className="workflow-mode-block">
+          <span>操作模式</span>
+          <div className="segment-control two workflow-mode-control">
+            <button disabled={anchorLocked} className={batch.workflowMode === "manual" ? "active" : ""} onClick={() => onPatch({ workflowMode: "manual" })}>手动模式</button>
+            <button disabled={anchorLocked} className={batch.workflowMode === "automatic" ? "active" : ""} onClick={() => onPatch({ workflowMode: "automatic" })}>自动模式</button>
+          </div>
+        </div>
+
+        <div className="field-group generation-method-field">
+          <span>生成方式</span>
+          <div className="segment-control two">
             <button disabled={anchorLocked} className={batch.promptStrategy === "varied-scenes" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "varied-scenes" })}>多场景创意</button>
             <button disabled={anchorLocked} className={batch.promptStrategy === "anchored-angles" ? "active" : ""} onClick={() => onPatch({ promptStrategy: "anchored-angles" })}>同场景多机位</button>
-          </div></div>
+          </div>
         </div>
 
         {batch.promptStrategy === "anchored-angles" && <div className="field-group branch-mode-field">
@@ -148,7 +195,7 @@ export const ProductSetup: React.FC<ProductSetupProps> = ({
           <span>提示词模板</span>
           <textarea
             value={batch.promptTemplate}
-            onChange={event => onPatch({ promptTemplate: event.target.value })}
+            onChange={event => onPromptTemplateChange(event.target.value)}
             placeholder="写入每条提示词都必须保留的内容，例如画面用途、主体位置、禁止改变的部分……"
           />
           <small>模板负责固定表达框架；具体产品外观由产品参考图约束。</small>
