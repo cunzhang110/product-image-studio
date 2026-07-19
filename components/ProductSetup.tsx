@@ -27,11 +27,19 @@ const ReferenceUpload: React.FC<ReferenceUploadProps> = ({ kind, image, title, n
   const dragDepth = useRef(0);
   const [dragActive, setDragActive] = useState(false);
   const Icon = kind === "product" ? PackageCheck : Palette;
+  const isImageFile = (file: { type?: string } | null | undefined) => Boolean(file?.type?.startsWith("image/"));
+  const selectImageFile = (file: File | undefined) => {
+    if (isImageFile(file)) onSelect(file);
+  };
+  const resetDragState = () => {
+    dragDepth.current = 0;
+    setDragActive(false);
+  };
   const isImageDrag = (event: React.DragEvent<HTMLDivElement>) => {
     const { items } = event.dataTransfer;
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
-      if (item?.kind === "file" && item.type.startsWith("image/")) return true;
+      if (item?.kind === "file" && isImageFile(item)) return true;
     }
     return false;
   };
@@ -43,19 +51,15 @@ const ReferenceUpload: React.FC<ReferenceUploadProps> = ({ kind, image, title, n
   const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     dragDepth.current = Math.max(0, dragDepth.current - 1);
-    if (dragDepth.current === 0) setDragActive(false);
+    if (dragDepth.current === 0) resetDragState();
   };
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    dragDepth.current = 0;
-    setDragActive(false);
+    resetDragState();
     const { files } = event.dataTransfer;
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index];
-      if (file?.type.startsWith("image/")) {
-        onSelect(file);
-        return;
-      }
+      if (isImageFile(file)) return selectImageFile(file);
     }
   };
 
@@ -77,8 +81,7 @@ const ReferenceUpload: React.FC<ReferenceUploadProps> = ({ kind, image, title, n
         accept="image/*"
         hidden
         onChange={event => {
-          const file = event.target.files?.[0];
-          if (file) onSelect(file);
+          selectImageFile(event.target.files?.[0]);
           event.target.value = "";
         }}
       />

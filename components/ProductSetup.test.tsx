@@ -44,6 +44,23 @@ const dispatchDrop = (target: Element, files: File[]) => {
   target.dispatchEvent(event);
 };
 
+const dispatchDragEnter = (target: Element, type = "image/png") => {
+  const event = new Event("dragenter", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", {
+    value: { items: [{ kind: "file", type }] }
+  });
+  target.dispatchEvent(event);
+};
+
+const dispatchDragLeave = (target: Element) => {
+  target.dispatchEvent(new Event("dragleave", { bubbles: true, cancelable: true }));
+};
+
+const dispatchFileChange = (target: HTMLInputElement, file: File) => {
+  Object.defineProperty(target, "files", { configurable: true, value: [file] });
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+};
+
 describe("ProductSetup", () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,6 +88,50 @@ describe("ProductSetup", () => {
 
     expect(onProductImageSelected).toHaveBeenCalledTimes(1);
     expect(onProductImageSelected).toHaveBeenCalledWith(expect.objectContaining({ name: "wine.png" }));
+  });
+
+  it("ignores a non-image selected through the file input", async () => {
+    const onProductImageSelected = vi.fn();
+    const { container } = await mountSetup({ onProductImageSelected });
+    const input = container.querySelector<HTMLInputElement>(".reference-card.product input[type=\"file\"]");
+
+    expect(input).not.toBeNull();
+    await act(async () => {
+      dispatchFileChange(input!, new File(["notes"], "notes.txt", { type: "text/plain" }));
+    });
+
+    expect(onProductImageSelected).not.toHaveBeenCalled();
+  });
+
+  it("tracks drag-active state through enter, leave, and image or non-image drop", async () => {
+    const onProductImageSelected = vi.fn();
+    const { container } = await mountSetup({ onProductImageSelected });
+    const productCard = container.querySelector(".reference-card.product");
+
+    expect(productCard).not.toBeNull();
+    await act(async () => {
+      dispatchDragEnter(productCard!);
+    });
+    expect(productCard?.classList.contains("drag-active")).toBe(true);
+
+    await act(async () => {
+      dispatchDragLeave(productCard!);
+    });
+    expect(productCard?.classList.contains("drag-active")).toBe(false);
+
+    await act(async () => {
+      dispatchDragEnter(productCard!);
+      dispatchDrop(productCard!, [new File(["image"], "wine.png", { type: "image/png" })]);
+    });
+    expect(productCard?.classList.contains("drag-active")).toBe(false);
+    expect(onProductImageSelected).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      dispatchDragEnter(productCard!);
+      dispatchDrop(productCard!, [new File(["notes"], "notes.txt", { type: "text/plain" })]);
+    });
+    expect(productCard?.classList.contains("drag-active")).toBe(false);
+    expect(onProductImageSelected).toHaveBeenCalledTimes(1);
   });
 
   it("forwards prompt template edits through the preference callback", async () => {
