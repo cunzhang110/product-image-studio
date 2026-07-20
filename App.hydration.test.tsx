@@ -9,15 +9,19 @@ import { createProductBatch, DEFAULT_PRODUCT_PROMPT_TEMPLATE, type ProductBatch 
 const dbMocks = vi.hoisted(() => ({
   loadBatches: vi.fn(),
   loadPreference: vi.fn(),
+  loadMuzhiConcurrency: vi.fn(),
   saveBatches: vi.fn(),
-  savePreference: vi.fn()
+  savePreference: vi.fn(),
+  saveMuzhiConcurrency: vi.fn()
 }));
 
 vi.mock("./utils/db", () => ({
   loadProductBatchesFromDB: dbMocks.loadBatches,
   loadPromptTemplatePreference: dbMocks.loadPreference,
+  loadMuzhiConcurrencyPreference: dbMocks.loadMuzhiConcurrency,
   saveProductBatchesToDB: dbMocks.saveBatches,
-  savePromptTemplatePreference: dbMocks.savePreference
+  savePromptTemplatePreference: dbMocks.savePreference,
+  saveMuzhiConcurrencyPreference: dbMocks.saveMuzhiConcurrency
 }));
 
 interface MountedApp {
@@ -68,8 +72,10 @@ describe("App workspace hydration", () => {
     vi.useFakeTimers();
     dbMocks.loadBatches.mockReset();
     dbMocks.loadPreference.mockReset();
+    dbMocks.loadMuzhiConcurrency.mockReset().mockResolvedValue(7);
     dbMocks.saveBatches.mockReset().mockResolvedValue(undefined);
     dbMocks.savePreference.mockReset().mockResolvedValue(undefined);
+    dbMocks.saveMuzhiConcurrency.mockReset().mockResolvedValue(undefined);
   });
 
   afterEach(async () => {

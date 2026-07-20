@@ -32,14 +32,19 @@ import {
   type ImageGeneration,
   type ProductBatch
 } from "./domain/productWorkflow";
+import { DEFAULT_MUZHI_GLOBAL_CONCURRENCY } from "./domain/muzhiConcurrency";
 import { generateImage } from "./services/geminiService";
 import { buildJobReferencePrompt, isGenerationAbort, prepareJobReferencesForRequest, runProductImageJobs } from "./services/productImageQueue";
 import { generateProductPromptPlan, generateProductPrompts } from "./services/productPromptService";
 import { continueManualAnchoredBatch, resumeProductBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./services/productBatchWorkflow";
+import { BatchRunRegistry } from "./services/batchRunRegistry";
+import { MuzhiBatchScheduler, type MuzhiSchedulerSnapshot } from "./services/muzhiBatchScheduler";
 import type { ImageSize, ServiceProvider } from "./types";
 import {
+  loadMuzhiConcurrencyPreference,
   loadProductBatchesFromDB,
   loadPromptTemplatePreference,
+  saveMuzhiConcurrencyPreference,
   saveProductBatchesToDB,
   savePromptTemplatePreference
 } from "./utils/db";
@@ -99,17 +104,32 @@ const App: React.FC = () => {
   const [batchLoadFailed, setBatchLoadFailed] = useState(false);
   const [batchPersistenceError, setBatchPersistenceError] = useState(false);
   const [preferencePersistenceError, setPreferencePersistenceError] = useState(false);
+  const [muzhiPreferencePersistenceError, setMuzhiPreferencePersistenceError] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [promptLoading, setPromptLoading] = useState(false);
   const [appending, setAppending] = useState(false);
   const [busyPromptId, setBusyPromptId] = useState<string | null>(null);
-  const [imageRunning, setImageRunning] = useState(false);
+  const [runningBatchIds, setRunningBatchIds] = useState<Set<string>>(new Set());
+  const [muzhiGlobalConcurrency, setMuzhiGlobalConcurrency] = useState(DEFAULT_MUZHI_GLOBAL_CONCURRENCY);
+  const [muzhiSnapshot, setMuzhiSnapshot] = useState<MuzhiSchedulerSnapshot>({
+    limit: DEFAULT_MUZHI_GLOBAL_CONCURRENCY,
+    activeCount: 0,
+    queuedCount: 0,
+    runningBatchCount: 0
+  });
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(null);
-  const activeRunControllerRef = useRef<AbortController | null>(null);
-  const activeRunBatchIdRef = useRef<string | null>(null);
+  const runRegistryRef = useRef<BatchRunRegistry | null>(null);
+  if (!runRegistryRef.current) {
+    runRegistryRef.current = new BatchRunRegistry(setRunningBatchIds);
+  }
+  const muzhiSchedulerRef = useRef<MuzhiBatchScheduler | null>(null);
+  if (!muzhiSchedulerRef.current) {
+    muzhiSchedulerRef.current = new MuzhiBatchScheduler(DEFAULT_MUZHI_GLOBAL_CONCURRENCY, setMuzhiSnapshot);
+  }
   const mountedRef = useRef(false);
   const hydrationAttemptRef = useRef(0);
   const preferenceSaveAttemptRef = useRef(0);
+  const muzhiPreferenceSaveAttemptRef = useRef(0);
+  const hydratedMuzhiConcurrencyRef = useRef<number | null>(null);
 
   const activeBatch = useMemo(
     () => batches.find(batch => batch.id === activeBatchId) || batches[0],
@@ -123,10 +143,13 @@ const App: React.FC = () => {
     setBatchLoadFailed(false);
     void hydrateProductWorkspace({
       loadBatches: loadProductBatchesFromDB,
-      loadPreference: loadPromptTemplatePreference
+      loadPreference: loadPromptTemplatePreference,
+      loadMuzhiConcurrency: loadMuzhiConcurrencyPreference
     }).then(workspace => {
       if (!mountedRef.current || attempt !== hydrationAttemptRef.current) return;
       setPromptTemplatePreference(workspace.promptTemplatePreference);
+      hydratedMuzhiConcurrencyRef.current = workspace.muzhiGlobalConcurrency;
+      setMuzhiGlobalConcurrency(workspace.muzhiGlobalConcurrency);
       if (!workspace.canPersistBatches) {
         setBatchLoadFailed(true);
         setHydrated(true);
@@ -150,8 +173,35 @@ const App: React.FC = () => {
     return () => {
       mountedRef.current = false;
       hydrationAttemptRef.current += 1;
+      runRegistryRef.current?.stopAll();
+      muzhiSchedulerRef.current?.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    muzhiSchedulerRef.current!.setLimit(muzhiGlobalConcurrency);
+  }, [muzhiGlobalConcurrency]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (hydratedMuzhiConcurrencyRef.current === muzhiGlobalConcurrency) {
+      hydratedMuzhiConcurrencyRef.current = null;
+      return;
+    }
+    const attempt = ++muzhiPreferenceSaveAttemptRef.current;
+    void Promise.resolve()
+      .then(() => saveMuzhiConcurrencyPreference(muzhiGlobalConcurrency))
+      .then(() => {
+        if (mountedRef.current && attempt === muzhiPreferenceSaveAttemptRef.current) {
+          setMuzhiPreferencePersistenceError(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current && attempt === muzhiPreferenceSaveAttemptRef.current) {
+          setMuzhiPreferencePersistenceError(true);
+        }
+      });
+  }, [hydrated, muzhiGlobalConcurrency]);
 
   useEffect(() => {
     if (!hydrated || !canPersistBatches) return;
@@ -180,22 +230,14 @@ const App: React.FC = () => {
 
   const showToast = (message: string, tone: "success" | "error" | "info" = "info") => setToast({ message, tone });
 
-  const beginRun = (batchId: string) => {
-    activeRunControllerRef.current?.abort();
-    const controller = new AbortController();
-    activeRunControllerRef.current = controller;
-    activeRunBatchIdRef.current = batchId;
-    return controller;
-  };
+  const beginRun = (batchId: string) => runRegistryRef.current!.begin(batchId);
 
-  const isCurrentRun = (controller: AbortController) => activeRunControllerRef.current === controller;
+  const isCurrentRun = (batchId: string, controller: AbortController) => (
+    runRegistryRef.current!.isCurrent(batchId, controller)
+  );
 
-  const finishRun = (controller: AbortController) => {
-    if (!isCurrentRun(controller)) return;
-    activeRunControllerRef.current = null;
-    activeRunBatchIdRef.current = null;
-    setPromptLoading(false);
-    setImageRunning(false);
+  const finishRun = (batchId: string, controller: AbortController) => {
+    runRegistryRef.current!.finish(batchId, controller);
   };
 
   const updateBatch = (batchId: string, updater: (batch: ProductBatch) => ProductBatch) => {
@@ -281,8 +323,23 @@ const App: React.FC = () => {
     return generateImage(job.promptSnapshot, job.aspectRatio, job.imageSize, job.provider, references, job.model, referencePrompt, signal);
   };
 
-  const executeBatchJobs: ProductBatchWorkflowDependencies["runJobs"] = (batch, jobs, onJobs, signal) =>
-    runProductImageJobs(jobs, batch.concurrency, job => generateJobImage(job, signal), onJobs, signal);
+  const executeBatchJobs: ProductBatchWorkflowDependencies["runJobs"] = (batch, jobs, onJobs, signal) => (
+    batch.imageProvider === "muzhi"
+      ? muzhiSchedulerRef.current!.enqueue({
+        batchId: batch.id,
+        jobs,
+        worker: generateJobImage,
+        onJobs,
+        signal
+      })
+      : runProductImageJobs(
+        jobs,
+        batch.concurrency,
+        job => generateJobImage(job, signal),
+        onJobs,
+        signal
+      )
+  );
 
   const workflowDependencies: ProductBatchWorkflowDependencies = {
     generatePromptPlan: requestPromptPlan,
@@ -290,23 +347,25 @@ const App: React.FC = () => {
   };
 
   const handleGeneratePrompts = async () => {
-    if (!activeBatch || promptLoading) return;
-    const controller = beginRun(activeBatch.id);
+    if (!activeBatch) return;
+    const batchId = activeBatch.id;
+    if (runningBatchIds.has(batchId)) return;
+    const controller = beginRun(batchId);
     try {
       validatePromptInput(activeBatch);
-      setPromptLoading(true);
-      updateBatch(activeBatch.id, batch => ({ ...batch, runPhase: "generating-prompts", runError: undefined }));
+      updateBatch(batchId, batch => ({ ...batch, runPhase: "generating-prompts", runError: undefined }));
       const prompts = await requestPrompts(activeBatch, activeBatch.requestedPromptCount, controller.signal);
-      if (!isCurrentRun(controller)) return;
-      updateBatch(activeBatch.id, batch => ({ ...batch, prompts: promptsToVariants(prompts), stage: "review", runPhase: "idle" }));
+      if (!isCurrentRun(batchId, controller)) return;
+      updateBatch(batchId, batch => ({ ...batch, prompts: promptsToVariants(prompts), stage: "review", runPhase: "idle" }));
       showToast(`已生成 ${prompts.length} 条提示词，确认后再开始生图`, "success");
     } catch (error) {
       if (controller.signal.aborted || isGenerationAbort(error)) return;
       const message = error instanceof Error ? error.message : "提示词生成失败";
-      updateBatch(activeBatch.id, batch => ({ ...batch, runPhase: "failed", runError: message }));
+      if (!isCurrentRun(batchId, controller)) return;
+      updateBatch(batchId, batch => ({ ...batch, runPhase: "failed", runError: message }));
       showToast(message, "error");
     } finally {
-      finishRun(controller);
+      finishRun(batchId, controller);
     }
   };
 
@@ -345,79 +404,88 @@ const App: React.FC = () => {
   };
 
   const runJobs = async (batch: ProductBatch, jobs: ImageGeneration[]) => {
-    const controller = beginRun(batch.id);
-    setImageRunning(true);
-    updateBatch(batch.id, current => ({ ...current, images: jobs, stage: "results", runPhase: "generating-images", runError: undefined }));
-    const completed = await runProductImageJobs(
-      jobs,
-      batch.concurrency,
-      job => generateJobImage(job, controller.signal),
-      nextJobs => {
-        if (isCurrentRun(controller)) updateBatch(batch.id, current => ({ ...current, images: nextJobs, stage: "results" }));
-      },
-      controller.signal
-    );
-    if (!isCurrentRun(controller)) return;
-    const runPhase = completed.some(job => job.status === "stopped")
-      ? "stopped" as const
-      : completed.some(job => job.status === "completed") ? "completed" as const : "failed" as const;
-    updateBatch(batch.id, current => ({ ...current, images: completed, stage: "results", runPhase }));
-    const successCount = completed.filter(job => job.status === "completed").length;
-    showToast(`本批次完成 ${successCount}/${completed.length} 张`, successCount ? "success" : "error");
-    finishRun(controller);
+    const batchId = batch.id;
+    const controller = beginRun(batchId);
+    try {
+      updateBatch(batchId, current => ({ ...current, images: jobs, stage: "results", runPhase: "generating-images", runError: undefined }));
+      const completed = await executeBatchJobs(
+        batch,
+        jobs,
+        nextJobs => {
+          if (isCurrentRun(batchId, controller)) {
+            updateBatch(batchId, current => ({ ...current, images: nextJobs, stage: "results" }));
+          }
+        },
+        controller.signal
+      );
+      if (!isCurrentRun(batchId, controller)) return;
+      const runPhase = completed.some(job => job.status === "stopped")
+        ? "stopped" as const
+        : completed.some(job => job.status === "completed") ? "completed" as const : "failed" as const;
+      updateBatch(batchId, current => ({ ...current, images: completed, stage: "results", runPhase }));
+      const successCount = completed.filter(job => job.status === "completed").length;
+      showToast(`本批次完成 ${successCount}/${completed.length} 张`, successCount ? "success" : "error");
+    } finally {
+      finishRun(batchId, controller);
+    }
   };
 
   const handleSetupStart = async () => {
-    if (!activeBatch || promptLoading || imageRunning) return;
+    if (!activeBatch) return;
+    const batchId = activeBatch.id;
+    if (runningBatchIds.has(batchId)) return;
     if (activeBatch.workflowMode === "manual" && activeBatch.promptStrategy === "varied-scenes") {
       await handleGeneratePrompts();
       return;
     }
-    const controller = beginRun(activeBatch.id);
+    const controller = beginRun(batchId);
     try {
       validatePromptInput(activeBatch);
       if (!activeBatch.productReferenceImage) throw new Error("请先上传产品参考图");
-      setPromptLoading(true);
-      setImageRunning(true);
       const onUpdate = (next: ProductBatch) => {
-        if (isCurrentRun(controller)) updateBatch(activeBatch.id, () => next);
+        if (isCurrentRun(batchId, controller)) updateBatch(batchId, () => next);
       };
       const result = activeBatch.workflowMode === "automatic"
         ? await runAutomaticProductBatch(activeBatch, workflowDependencies, onUpdate, controller.signal)
         : await startManualAnchoredBatch(activeBatch, workflowDependencies, onUpdate, controller.signal);
-      if (!isCurrentRun(controller)) return;
-      updateBatch(activeBatch.id, () => result);
+      if (!isCurrentRun(batchId, controller)) return;
+      updateBatch(batchId, () => result);
       const completed = result.images.filter(image => image.status === "completed").length;
       showToast(result.runPhase === "failed" ? result.runError || "流程失败" : result.runPhase === "awaiting-anchor-approval" ? "主场景已生成，请确认后继续" : `已完成 ${completed}/${result.images.length} 张`, result.runPhase === "failed" ? "error" : "success");
     } catch (error) {
       if (controller.signal.aborted || isGenerationAbort(error)) return;
+      if (!isCurrentRun(batchId, controller)) return;
       showToast(error instanceof Error ? error.message : "流程启动失败", "error");
     } finally {
-      finishRun(controller);
+      finishRun(batchId, controller);
     }
   };
 
   const handleContinueAnchor = async () => {
-    if (!activeBatch || imageRunning) return;
-    const controller = beginRun(activeBatch.id);
+    if (!activeBatch) return;
+    const batchId = activeBatch.id;
+    if (runningBatchIds.has(batchId)) return;
+    const controller = beginRun(batchId);
     try {
-      setImageRunning(true);
       const result = await continueManualAnchoredBatch(activeBatch, workflowDependencies, next => {
-        if (isCurrentRun(controller)) updateBatch(activeBatch.id, () => next);
+        if (isCurrentRun(batchId, controller)) updateBatch(batchId, () => next);
       }, controller.signal);
-      if (!isCurrentRun(controller)) return;
-      updateBatch(activeBatch.id, () => result);
+      if (!isCurrentRun(batchId, controller)) return;
+      updateBatch(batchId, () => result);
       showToast(`本批次完成 ${result.images.filter(image => image.status === "completed").length}/${result.images.length} 张`, "success");
     } catch (error) {
       if (controller.signal.aborted || isGenerationAbort(error)) return;
+      if (!isCurrentRun(batchId, controller)) return;
       showToast(error instanceof Error ? error.message : "继续生成失败", "error");
     } finally {
-      finishRun(controller);
+      finishRun(batchId, controller);
     }
   };
 
   const handleGenerateImages = async () => {
-    if (!activeBatch || imageRunning) return;
+    if (!activeBatch) return;
+    const batchId = activeBatch.id;
+    if (runningBatchIds.has(batchId)) return;
     if (!activeBatch.productReferenceImage) return showToast("请先上传产品参考图再开始生图", "error");
     const jobs = createImageJobs(activeBatch);
     if (!jobs.length) return showToast("请先选择至少一条提示词", "error");
@@ -425,39 +493,47 @@ const App: React.FC = () => {
   };
 
   const handleRetryJob = async (job: ImageGeneration) => {
-    if (!activeBatch || imageRunning) return;
-    const controller = beginRun(activeBatch.id);
+    if (!activeBatch) return;
+    const batchId = activeBatch.id;
+    if (runningBatchIds.has(batchId)) return;
+    const controller = beginRun(batchId);
     const retryJob = { ...job, status: "idle" as const, error: undefined, resultUrl: undefined };
     const otherJobs = activeBatch.images.filter(item => item.id !== job.id);
-    setImageRunning(true);
-    updateBatch(activeBatch.id, batch => ({ ...batch, images: [...otherJobs, retryJob], runPhase: "generating-images" }));
-    const result = await runProductImageJobs([retryJob], 1, async current => {
-      return generateJobImage(current, controller.signal);
-    }, undefined, controller.signal);
-    if (!isCurrentRun(controller)) return;
-    updateBatch(activeBatch.id, batch => {
-      const images = batch.images.map(item => item.id === job.id ? result[0] : item);
-      return {
-        ...batch,
-        images,
-        runPhase: job.role === "anchor" && result[0].status === "completed"
-          ? "awaiting-anchor-approval"
-          : getImageRunPhase(images)
-      };
-    });
-    finishRun(controller);
+    try {
+      updateBatch(batchId, batch => ({ ...batch, images: [...otherJobs, retryJob], runPhase: "generating-images" }));
+      const result = await executeBatchJobs(activeBatch, [retryJob], nextJobs => {
+        if (!isCurrentRun(batchId, controller)) return;
+        updateBatch(batchId, batch => ({
+          ...batch,
+          images: batch.images.map(item => item.id === job.id ? nextJobs[0] : item)
+        }));
+      }, controller.signal);
+      if (!isCurrentRun(batchId, controller)) return;
+      updateBatch(batchId, batch => {
+        const images = batch.images.map(item => item.id === job.id ? result[0] : item);
+        return {
+          ...batch,
+          images,
+          runPhase: job.role === "anchor" && result[0].status === "completed"
+            ? "awaiting-anchor-approval"
+            : getImageRunPhase(images)
+        };
+      });
+    } catch (error) {
+      if (controller.signal.aborted || isGenerationAbort(error)) return;
+      if (!isCurrentRun(batchId, controller)) return;
+      showToast(error instanceof Error ? error.message : "重试失败", "error");
+    } finally {
+      finishRun(batchId, controller);
+    }
   };
 
   const handleStopGeneration = () => {
-    if (!activeBatch || !activeRunControllerRef.current) return;
-    const controller = activeRunControllerRef.current;
-    const runningBatchId = activeRunBatchIdRef.current || activeBatch.id;
-    controller.abort();
-    activeRunControllerRef.current = null;
-    activeRunBatchIdRef.current = null;
-    setPromptLoading(false);
-    setImageRunning(false);
-    updateBatch(runningBatchId, batch => ({
+    if (!activeBatch) return;
+    const batchId = activeBatch.id;
+    if (!runRegistryRef.current!.has(batchId)) return;
+    runRegistryRef.current!.stop(batchId);
+    updateBatch(batchId, batch => ({
       ...batch,
       runPhase: "stopped",
       runError: undefined,
@@ -469,16 +545,16 @@ const App: React.FC = () => {
   };
 
   const handleResumeGeneration = async () => {
-    if (!activeBatch || promptLoading || imageRunning) return;
-    const controller = beginRun(activeBatch.id);
-    setPromptLoading(!activeBatch.prompts.length);
-    setImageRunning(Boolean(activeBatch.prompts.length));
+    if (!activeBatch) return;
+    const batchId = activeBatch.id;
+    if (runningBatchIds.has(batchId)) return;
+    const controller = beginRun(batchId);
     try {
       const result = await resumeProductBatch(activeBatch, workflowDependencies, next => {
-        if (isCurrentRun(controller)) updateBatch(activeBatch.id, () => next);
+        if (isCurrentRun(batchId, controller)) updateBatch(batchId, () => next);
       }, controller.signal);
-      if (!isCurrentRun(controller)) return;
-      updateBatch(activeBatch.id, () => result);
+      if (!isCurrentRun(batchId, controller)) return;
+      updateBatch(batchId, () => result);
       if (result.runPhase === "awaiting-anchor-approval") {
         showToast("主场景已生成，请确认后继续", "success");
       } else if (result.runPhase === "idle") {
@@ -489,9 +565,10 @@ const App: React.FC = () => {
       }
     } catch (error) {
       if (controller.signal.aborted || isGenerationAbort(error)) return;
+      if (!isCurrentRun(batchId, controller)) return;
       showToast(error instanceof Error ? error.message : "继续生成失败", "error");
     } finally {
-      finishRun(controller);
+      finishRun(batchId, controller);
     }
   };
 
@@ -539,10 +616,11 @@ const App: React.FC = () => {
   const selectedPromptCount = activeBatch.prompts.filter(prompt => prompt.selected).length;
   const completedCount = activeBatch.images.filter(image => image.status === "completed").length;
   const plannedImageCount = getPlannedImageCount(activeBatch);
-  const generationActive = promptLoading || imageRunning || ["generating-prompts", "generating-anchor", "generating-images"].includes(activeBatch.runPhase);
+  const generationActive = runningBatchIds.has(activeBatch.id);
   const persistenceMessages = [
     batchPersistenceError ? "批次自动保存失败，请检查浏览器存储后再次编辑以重试。" : "",
-    preferencePersistenceError ? "模板偏好保存失败，新批次可能无法继承本次修改。" : ""
+    preferencePersistenceError ? "模板偏好保存失败，新批次可能无法继承本次修改。" : "",
+    muzhiPreferencePersistenceError ? "Muzhi 并发偏好保存失败，请再次调整设置以重试。" : ""
   ].filter(Boolean);
   const hasPersistenceError = persistenceMessages.length > 0;
 

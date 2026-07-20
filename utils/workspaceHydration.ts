@@ -11,7 +11,7 @@ import {
 interface ProductWorkspaceLoaders {
   loadBatches: () => Promise<ProductBatch[]>;
   loadPreference: () => Promise<string | null>;
-  loadMuzhiConcurrency?: () => Promise<number | null>;
+  loadMuzhiConcurrency: () => Promise<number | null>;
 }
 
 interface HydratedProductWorkspace {
@@ -28,7 +28,7 @@ export const createPreferredProductBatch = (name: string, promptTemplate: string
 export const hydrateProductWorkspace = async ({
   loadBatches,
   loadPreference,
-  loadMuzhiConcurrency = async () => null
+  loadMuzhiConcurrency
 }: ProductWorkspaceLoaders): Promise<HydratedProductWorkspace> => {
   const [batchesResult, preferenceResult, muzhiConcurrencyResult] = await Promise.allSettled([
     loadBatches(),
