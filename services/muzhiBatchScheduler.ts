@@ -94,7 +94,7 @@ export class MuzhiBatchScheduler {
       queue = { batchId: input.batchId, current: run };
       this.batches.set(input.batchId, queue);
       this.roundRobin.push(input.batchId);
-    } else if (queue.current.cancelled && this.activeBatchIds.has(input.batchId)) {
+    } else if (queue.current.cancelled || queue.current.settled) {
       run = queue.pending || this.createRun(input.worker);
       queue.pending = run;
     } else {

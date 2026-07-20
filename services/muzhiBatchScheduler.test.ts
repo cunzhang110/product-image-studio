@@ -346,6 +346,55 @@ describe("Muzhi batch scheduler", () => {
     expect(result.map(job => job.status)).toEqual(["completed", "completed"]);
   });
 
+  it("routes an onSnapshot resume to a fresh run when the old request physically settles", async () => {
+    const oldGate = deferred<string>();
+    const resumedGate = deferred<string>();
+    const starts: string[] = [];
+    const signals: AbortSignal[] = [];
+    let resumeJobs: ImageGeneration[] | undefined;
+    let resumeOnSettlement = false;
+    let resumed: Promise<ImageGeneration[]> | undefined;
+    let scheduler!: MuzhiBatchScheduler;
+    scheduler = new MuzhiBatchScheduler(1, snapshot => {
+      if (!resumeOnSettlement || snapshot.activeCount !== 0 || snapshot.runningBatchCount !== 0) return;
+      resumeOnSettlement = false;
+      resumed = scheduler.enqueue({
+        batchId: "A",
+        jobs: resumeJobs!,
+        worker: async (job, signal) => {
+          starts.push(`new:${job.id}`);
+          signals.push(signal!);
+          return resumedGate.promise;
+        }
+      });
+    });
+    const first = scheduler.enqueue({
+      batchId: "A",
+      jobs: [makeJob("A", "1")],
+      worker: async (job, signal) => {
+        starts.push(`old:${job.id}`);
+        signals.push(signal!);
+        return oldGate.promise;
+      }
+    });
+
+    await flushMicrotasks();
+    scheduler.cancel("A");
+    resumeJobs = await first;
+    resumeOnSettlement = true;
+    oldGate.resolve("ignored-old-result");
+    await flushMicrotasks();
+
+    expect(resumed).toBeDefined();
+    expect(starts).toEqual(["old:A1", "new:A1"]);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    resumedGate.resolve("data:A1");
+    const result = await resumed!;
+    expect(result.map(job => job.status)).toEqual(["completed"]);
+    expect(starts.filter(value => value === "new:A1")).toHaveLength(1);
+  });
+
   it("starts a resumed run once after the cancelled physical request rejects", async () => {
     const oldGate = deferred<string>();
     const resumedGate = deferred<string>();
