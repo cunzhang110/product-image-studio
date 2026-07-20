@@ -273,7 +273,7 @@ const parsePayload = (rawText: string) => {
   }
 };
 
-const withRequestSlot = async <T>(provider: ServiceProvider, task: () => Promise<T>, signal?: AbortSignal) => {
+const withSerializedProviderSlot = async <T>(provider: ServiceProvider, task: () => Promise<T>, signal?: AbortSignal) => {
   const state = requestSlotStates[provider];
   const providerConfig = getProviderConfig(provider);
   const previous = state.queue;
@@ -307,6 +307,14 @@ const withRequestSlot = async <T>(provider: ServiceProvider, task: () => Promise
   } finally {
     release();
   }
+};
+
+const withRequestSlot = async <T>(provider: ServiceProvider, task: () => Promise<T>, signal?: AbortSignal) => {
+  if (provider === "muzhi") {
+    if (signal?.aborted) throw createAbortError();
+    return task();
+  }
+  return withSerializedProviderSlot(provider, task, signal);
 };
 
 const getRetryDelayMs = (provider: ServiceProvider, response: Response, attempt: number) => {
