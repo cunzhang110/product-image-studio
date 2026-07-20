@@ -1,6 +1,8 @@
 import { normalizeProductBatch, type ProductBatch } from "../domain/productWorkflow";
+import { normalizeMuzhiGlobalConcurrency } from "../domain/muzhiConcurrency";
 
 const PROMPT_TEMPLATE_PREFERENCE_ID = "prompt-template-preference";
+const MUZHI_CONCURRENCY_PREFERENCE_ID = "muzhi-global-concurrency";
 
 export const initDB = () => {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -62,6 +64,29 @@ export const loadPromptTemplatePreference = async (): Promise<string | null> => 
     request.onsuccess = () => resolve(request.result
       ? String(request.result.promptTemplate ?? "")
       : null);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const saveMuzhiConcurrencyPreference = async (value: unknown) => {
+  const db = await initDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("settings", "readwrite");
+    tx.objectStore("settings").put({
+      id: MUZHI_CONCURRENCY_PREFERENCE_ID,
+      value: normalizeMuzhiGlobalConcurrency(value)
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const loadMuzhiConcurrencyPreference = async (): Promise<number | null> => {
+  const db = await initDB();
+  return new Promise<number | null>((resolve, reject) => {
+    const tx = db.transaction("settings", "readonly");
+    const request = tx.objectStore("settings").get(MUZHI_CONCURRENCY_PREFERENCE_ID);
+    request.onsuccess = () => resolve(request.result ? request.result.value : null);
     request.onerror = () => reject(request.error);
   });
 };

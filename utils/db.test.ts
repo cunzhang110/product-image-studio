@@ -2,9 +2,12 @@ import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { createProductBatch } from "../domain/productWorkflow";
 import {
+  initDB,
   loadProductBatchesFromDB,
+  loadMuzhiConcurrencyPreference,
   loadPromptTemplatePreference,
   saveProductBatchesToDB,
+  saveMuzhiConcurrencyPreference,
   savePromptTemplatePreference
 } from "./db";
 
@@ -29,5 +32,28 @@ describe("prompt template preference database", () => {
     expect(await loadPromptTemplatePreference()).toBe("");
     await savePromptTemplatePreference("新的酒瓶模板");
     expect(await loadPromptTemplatePreference()).toBe("新的酒瓶模板");
+  });
+});
+
+describe("Muzhi concurrency preference database", () => {
+  it("returns null when the concurrency preference is absent", async () => {
+    await expect(loadMuzhiConcurrencyPreference()).resolves.toBeNull();
+  });
+
+  it("persists and restores the global concurrency preference", async () => {
+    await saveMuzhiConcurrencyPreference(5);
+
+    const db = await initDB();
+    const stored = await new Promise<unknown>((resolve, reject) => {
+      const request = db
+        .transaction("settings", "readonly")
+        .objectStore("settings")
+        .get("muzhi-global-concurrency");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+    expect(stored).toEqual({ id: "muzhi-global-concurrency", value: 5 });
+    await expect(loadMuzhiConcurrencyPreference()).resolves.toBe(5);
   });
 });

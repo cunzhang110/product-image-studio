@@ -14,12 +14,36 @@ describe("product workspace hydration", () => {
       loadBatches: async () => [storedBatch],
       loadPreference: async () => {
         throw new Error("preference unavailable");
+      },
+      loadMuzhiConcurrency: async () => {
+        throw new Error("concurrency preference unavailable");
       }
     });
 
     expect(workspace.batches).toEqual([storedBatch]);
     expect(workspace.promptTemplatePreference).toBe(DEFAULT_PRODUCT_PROMPT_TEMPLATE);
+    expect(workspace.muzhiGlobalConcurrency).toBe(7);
     expect(workspace.canPersistBatches).toBe(true);
+  });
+
+  it("hydrates a stored Muzhi global concurrency preference", async () => {
+    const workspace = await hydrateProductWorkspace({
+      loadBatches: async () => [],
+      loadPreference: async () => null,
+      loadMuzhiConcurrency: async () => 5
+    });
+
+    expect(workspace.muzhiGlobalConcurrency).toBe(5);
+  });
+
+  it("uses the default Muzhi concurrency when the preference is absent", async () => {
+    const workspace = await hydrateProductWorkspace({
+      loadBatches: async () => [],
+      loadPreference: async () => null,
+      loadMuzhiConcurrency: async () => null
+    });
+
+    expect(workspace.muzhiGlobalConcurrency).toBe(7);
   });
 
   it("does not permit automatic batch persistence when batch hydration fails", async () => {
@@ -27,7 +51,8 @@ describe("product workspace hydration", () => {
       loadBatches: async () => {
         throw new Error("batches unavailable");
       },
-      loadPreference: async () => "用户模板"
+      loadPreference: async () => "用户模板",
+      loadMuzhiConcurrency: async () => 5
     });
 
     expect(workspace.batches).toHaveLength(1);
