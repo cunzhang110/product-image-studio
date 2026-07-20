@@ -31,6 +31,7 @@ interface BatchRun {
   abortListeners: Array<{ signal: AbortSignal; listener: () => void }>;
   cancelled: boolean;
   settled: boolean;
+  historyEpoch: number;
 }
 
 interface BatchQueue {
@@ -41,11 +42,13 @@ interface BatchQueue {
 
 const cloneJobs = (jobs: ImageGeneration[]) => jobs.map(job => ({ ...job }));
 
-const stoppedInputJobs = (jobs: ImageGeneration[]) => {
+const stoppedInputJobs = (jobs: ImageGeneration[], completedById?: Map<string, ImageGeneration>) => {
   const seen = new Set<string>();
   return jobs.flatMap(job => {
     if (seen.has(job.id)) return [];
     seen.add(job.id);
+    const completed = completedById?.get(job.id);
+    if (completed) return [{ ...completed }];
     return [{
       ...job,
       status: job.status === "completed" ? "completed" as const : "stopped" as const,
@@ -56,11 +59,13 @@ const stoppedInputJobs = (jobs: ImageGeneration[]) => {
 
 export class MuzhiBatchScheduler {
   private readonly batches = new Map<string, BatchQueue>();
+  private readonly completedByBatch = new Map<string, Map<string, ImageGeneration>>();
   private readonly roundRobin: string[] = [];
   private readonly activeBatchIds = new Set<string>();
   private activeCount = 0;
   private limit: number;
   private draining = false;
+  private historyEpoch = 0;
 
   constructor(
     limit = DEFAULT_MUZHI_GLOBAL_CONCURRENCY,
@@ -77,7 +82,7 @@ export class MuzhiBatchScheduler {
 
   enqueue(input: MuzhiBatchRunInput): Promise<ImageGeneration[]> {
     if (input.signal?.aborted) {
-      const jobs = stoppedInputJobs(input.jobs);
+      const jobs = stoppedInputJobs(input.jobs, this.completedByBatch.get(input.batchId));
       input.onJobs?.(cloneJobs(jobs));
       return Promise.resolve(cloneJobs(jobs));
     }
@@ -97,7 +102,12 @@ export class MuzhiBatchScheduler {
     }
 
     if (input.onJobs) run.onJobs.add(input.onJobs);
-    this.appendJobs(run, input.jobs, queue.current === run ? [] : queue.current.jobs);
+    this.appendJobs(
+      run,
+      input.jobs,
+      queue.current === run ? [] : queue.current.jobs,
+      this.completedByBatch.get(input.batchId)
+    );
     const result = new Promise<ImageGeneration[]>(resolve => run.waiters.push(resolve));
 
     if (input.signal) {
@@ -140,6 +150,8 @@ export class MuzhiBatchScheduler {
   }
 
   dispose(): void {
+    this.historyEpoch += 1;
+    this.completedByBatch.clear();
     for (const batchId of [...this.batches.keys()]) this.cancel(batchId);
   }
 
@@ -152,14 +164,20 @@ export class MuzhiBatchScheduler {
       onJobs: new Set(),
       abortListeners: [],
       cancelled: false,
-      settled: false
+      settled: false,
+      historyEpoch: this.historyEpoch
     };
   }
 
-  private appendJobs(run: BatchRun, inputJobs: ImageGeneration[], previousJobs: ImageGeneration[]): void {
+  private appendJobs(
+    run: BatchRun,
+    inputJobs: ImageGeneration[],
+    previousJobs: ImageGeneration[],
+    retainedCompleted?: Map<string, ImageGeneration>
+  ): void {
     const knownIds = new Set(run.jobs.map(job => job.id));
     const completedById = new Map(
-      [...previousJobs, ...run.jobs]
+      [...(retainedCompleted?.values() || []), ...previousJobs, ...run.jobs]
         .filter(job => job.status === "completed")
         .map(job => [job.id, job])
     );
@@ -277,12 +295,22 @@ export class MuzhiBatchScheduler {
 
   private advanceQueue(queue: BatchQueue): void {
     if (this.activeBatchIds.has(queue.batchId) || !queue.current.settled) return;
+    this.rememberCompleted(queue.batchId, queue.current);
     if (queue.pending) {
       queue.current = queue.pending;
       queue.pending = undefined;
       return;
     }
     this.removeQueue(queue);
+  }
+
+  private rememberCompleted(batchId: string, run: BatchRun): void {
+    if (run.historyEpoch !== this.historyEpoch) return;
+    const completed = run.jobs.filter(job => job.status === "completed");
+    if (completed.length === 0) return;
+    const history = this.completedByBatch.get(batchId) || new Map<string, ImageGeneration>();
+    for (const job of completed) history.set(job.id, { ...job });
+    this.completedByBatch.set(batchId, history);
   }
 
   private removeQueue(queue: BatchQueue): void {

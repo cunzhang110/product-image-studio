@@ -441,4 +441,73 @@ describe("Muzhi batch scheduler", () => {
     await Promise.all([first, second]);
     expect(starts).toEqual(["A1"]);
   });
+
+  it("retains completed IDs after settlement and restores their original result", async () => {
+    const scheduler = new MuzhiBatchScheduler(1);
+    const job1 = { ...makeJob("A", "1"), id: "job-1" };
+    const job2 = { ...makeJob("A", "2"), id: "job-2" };
+    const first = await scheduler.enqueue({
+      batchId: "A",
+      jobs: [job1],
+      worker: async () => "data:original-job-1"
+    });
+    expect(first[0].status).toBe("completed");
+
+    const calls: string[] = [];
+    const result = await scheduler.enqueue({
+      batchId: "A",
+      jobs: [{ ...job1, status: "idle", resultUrl: undefined }, job2],
+      worker: async job => {
+        calls.push(job.id);
+        return `data:${job.id}`;
+      }
+    });
+
+    expect(calls).toEqual(["job-2"]);
+    expect(result[0]).toMatchObject({
+      id: "job-1",
+      status: "completed",
+      resultUrl: "data:original-job-1"
+    });
+    expect(result[1]).toMatchObject({ id: "job-2", status: "completed", resultUrl: "data:job-2" });
+  });
+
+  it("keeps stopped and failed IDs eligible after a batch settles", async () => {
+    const scheduler = new MuzhiBatchScheduler(1);
+    const calls: string[] = [];
+    const stopped = { ...makeJob("A", "stopped"), status: "stopped" as const };
+    const failed = { ...makeJob("A", "failed"), status: "failed" as const, error: "old failure" };
+
+    const result = await scheduler.enqueue({
+      batchId: "A",
+      jobs: [stopped, failed],
+      worker: async job => {
+        calls.push(job.id);
+        return `data:${job.id}`;
+      }
+    });
+
+    expect(calls).toEqual(["Astopped", "Afailed"]);
+    expect(result.every(job => job.status === "completed")).toBe(true);
+  });
+
+  it("clears retained completed IDs on dispose", async () => {
+    const scheduler = new MuzhiBatchScheduler(1);
+    const job = { ...makeJob("A", "1"), id: "job-1" };
+    await scheduler.enqueue({ batchId: "A", jobs: [job], worker: async () => "data:first" });
+    scheduler.dispose();
+    let calls = 0;
+
+    const result = await scheduler.enqueue({
+      batchId: "A",
+      jobs: [{ ...job, status: "idle" }],
+      worker: async () => {
+        calls += 1;
+        return "data:after-dispose";
+      }
+    });
+
+    expect(calls).toBe(1);
+    expect(result[0].resultUrl).toBe("data:after-dispose");
+  });
 });
