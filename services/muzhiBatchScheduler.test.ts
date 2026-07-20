@@ -214,6 +214,118 @@ describe("Muzhi batch scheduler", () => {
     expect(c.every(job => job.status === "completed")).toBe(true);
   });
 
+  it("stops an abort-ignoring run immediately but holds its physical slot", async () => {
+    const oldGate = deferred<string>();
+    const otherGate = deferred<string>();
+    const updates: ImageGeneration[][] = [];
+    const starts: string[] = [];
+    const scheduler = new MuzhiBatchScheduler(1);
+    let firstSettled = false;
+    const first = scheduler.enqueue({
+      batchId: "A",
+      jobs: [makeJob("A", "1"), makeJob("A", "2")],
+      onJobs: jobs => updates.push(jobs),
+      worker: async job => {
+        starts.push(job.id);
+        return oldGate.promise;
+      }
+    });
+    first.then(() => { firstSettled = true; });
+    const other = scheduler.enqueue({
+      batchId: "B",
+      jobs: [makeJob("B", "1")],
+      worker: async job => {
+        starts.push(job.id);
+        return otherGate.promise;
+      }
+    });
+
+    await flushMicrotasks();
+    scheduler.cancel("A");
+    await flushMicrotasks();
+
+    expect(updates.at(-1)?.map(job => job.status)).toEqual(["stopped", "stopped"]);
+    expect(firstSettled).toBe(true);
+    expect(starts).toEqual(["A1"]);
+    expect(scheduler.getSnapshot().activeCount).toBe(1);
+
+    oldGate.resolve("data:A1");
+    await flushMicrotasks();
+    expect(starts).toEqual(["A1", "B1"]);
+    otherGate.resolve("data:B1");
+    await Promise.all([first, other]);
+  });
+
+  it("settles a pre-aborted run without dispatching or retaining a waiter", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const updates: ImageGeneration[][] = [];
+    let calls = 0;
+    const completed = { ...makeJob("A", "done"), status: "completed" as const, resultUrl: "data:done" };
+    const scheduler = new MuzhiBatchScheduler(1);
+
+    const result = await scheduler.enqueue({
+      batchId: "A",
+      jobs: [completed, makeJob("A", "1")],
+      signal: controller.signal,
+      onJobs: jobs => updates.push(jobs),
+      worker: async () => {
+        calls += 1;
+        return "unused";
+      }
+    });
+
+    expect(calls).toBe(0);
+    expect(result.map(job => job.status)).toEqual(["completed", "stopped"]);
+    expect(updates.at(-1)?.map(job => job.status)).toEqual(["completed", "stopped"]);
+    expect(scheduler.getSnapshot()).toEqual({ limit: 1, activeCount: 0, queuedCount: 0, runningBatchCount: 0 });
+  });
+
+  it("queues a cancelled batch resume until the old physical request settles", async () => {
+    const oldGate = deferred<string>();
+    const resumedGate = deferred<string>();
+    const starts: string[] = [];
+    const signals: AbortSignal[] = [];
+    const scheduler = new MuzhiBatchScheduler(1);
+    const completed = { ...makeJob("A", "done"), status: "completed" as const, resultUrl: "data:done" };
+    const first = scheduler.enqueue({
+      batchId: "A",
+      jobs: [completed, makeJob("A", "1")],
+      worker: async (job, signal) => {
+        starts.push(`old:${job.id}`);
+        signals.push(signal!);
+        return oldGate.promise;
+      }
+    });
+
+    await flushMicrotasks();
+    scheduler.cancel("A");
+    const stopped = await first;
+    const resumed = scheduler.enqueue({
+      batchId: "A",
+      jobs: stopped,
+      worker: async (job, signal) => {
+        starts.push(`new:${job.id}`);
+        signals.push(signal!);
+        return resumedGate.promise;
+      }
+    });
+
+    await flushMicrotasks();
+    expect(starts).toEqual(["old:A1"]);
+    expect(scheduler.getSnapshot()).toEqual({ limit: 1, activeCount: 1, queuedCount: 1, runningBatchCount: 1 });
+    oldGate.resolve("ignored-old-result");
+    await flushMicrotasks();
+    expect(starts).toEqual(["old:A1", "new:A1"]);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+
+    resumedGate.resolve("data:A1");
+    const result = await resumed;
+    expect(result.map(job => job.id)).toEqual(["Adone", "A1"]);
+    expect(result.map(job => job.status)).toEqual(["completed", "completed"]);
+  });
+
   it("lowers the limit without aborting active work and reports snapshot counts", async () => {
     const gates = new Map<string, ReturnType<typeof deferred<string>>>();
     const signals: AbortSignal[] = [];
