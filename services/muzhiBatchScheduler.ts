@@ -228,6 +228,7 @@ export class MuzhiBatchScheduler {
     this.emitRun(run);
 
     try {
+      if (run.cancelled || run.jobs[index].status !== "generating") return;
       const resultUrl = await run.worker({ ...run.jobs[index] }, run.controller.signal);
       if (run.jobs[index].status === "generating") {
         run.jobs[index] = run.controller.signal.aborted

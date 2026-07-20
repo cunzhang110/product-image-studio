@@ -256,6 +256,26 @@ describe("Muzhi batch scheduler", () => {
     await Promise.all([first, other]);
   });
 
+  it("does not invoke a worker after an onJobs cancellation observes generating", async () => {
+    let calls = 0;
+    const scheduler = new MuzhiBatchScheduler(1);
+    const result = await scheduler.enqueue({
+      batchId: "A",
+      jobs: [makeJob("A", "1")],
+      onJobs: jobs => {
+        if (jobs.some(job => job.status === "generating")) scheduler.cancel("A");
+      },
+      worker: async () => {
+        calls += 1;
+        return "unused";
+      }
+    });
+
+    expect(calls).toBe(0);
+    expect(result.map(job => job.status)).toEqual(["stopped"]);
+    expect(scheduler.getSnapshot()).toEqual({ limit: 1, activeCount: 0, queuedCount: 0, runningBatchCount: 0 });
+  });
+
   it("settles a pre-aborted run without dispatching or retaining a waiter", async () => {
     const controller = new AbortController();
     controller.abort();
@@ -324,6 +344,48 @@ describe("Muzhi batch scheduler", () => {
     const result = await resumed;
     expect(result.map(job => job.id)).toEqual(["Adone", "A1"]);
     expect(result.map(job => job.status)).toEqual(["completed", "completed"]);
+  });
+
+  it("starts a resumed run once after the cancelled physical request rejects", async () => {
+    const oldGate = deferred<string>();
+    const resumedGate = deferred<string>();
+    const starts: string[] = [];
+    const signals: AbortSignal[] = [];
+    const scheduler = new MuzhiBatchScheduler(1);
+    const first = scheduler.enqueue({
+      batchId: "A",
+      jobs: [makeJob("A", "1")],
+      worker: async (job, signal) => {
+        starts.push(`old:${job.id}`);
+        signals.push(signal!);
+        return oldGate.promise;
+      }
+    });
+
+    await flushMicrotasks();
+    scheduler.cancel("A");
+    const stopped = await first;
+    const resumed = scheduler.enqueue({
+      batchId: "A",
+      jobs: stopped,
+      worker: async (job, signal) => {
+        starts.push(`new:${job.id}`);
+        signals.push(signal!);
+        return resumedGate.promise;
+      }
+    });
+
+    oldGate.reject(new Error("old request failed after cancellation"));
+    await flushMicrotasks();
+    expect(stopped.map(job => job.status)).toEqual(["stopped"]);
+    expect(starts).toEqual(["old:A1", "new:A1"]);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+
+    resumedGate.resolve("data:A1");
+    const result = await resumed;
+    expect(starts.filter(value => value === "new:A1")).toHaveLength(1);
+    expect(result.map(job => job.status)).toEqual(["completed"]);
   });
 
   it("lowers the limit without aborting active work and reports snapshot counts", async () => {
