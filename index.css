@@ -245,9 +245,15 @@ img { display: block; max-width: 100%; }
 .setting-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; padding: 16px 0; border-bottom: 1px solid #e2e7ed; }
 .setting-row label { align-items: flex-start; flex-direction: column; gap: 7px; }
 .setting-row select { height: 38px; padding: 0 8px; font-size: 13px; }
-.concurrency-setting label strong { color: var(--blue); font-size: 12px; }
-.concurrency-setting input { width: 100%; margin: 12px 0 5px; accent-color: var(--blue); }
+.concurrency-setting label { font-size: 13px; }
+.concurrency-setting label strong { color: var(--blue); font-size: 13px; }
+.concurrency-setting input { width: 100%; min-height: 40px; margin: 8px 0 3px; accent-color: var(--blue); }
 .concurrency-setting small { color: #8b96a5; font-size: 11px; }
+.scheduler-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 13px; border-top: 1px solid #dfe4ea; border-bottom: 1px solid #dfe4ea; }
+.scheduler-stats > div { min-width: 0; min-height: 52px; display: flex; flex-direction: column; justify-content: center; gap: 3px; padding: 7px 8px; }
+.scheduler-stats > div + div { border-left: 1px solid #dfe4ea; }
+.scheduler-stats span { overflow: hidden; color: #687487; font-size: 13px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.scheduler-stats strong { color: #223653; font-size: 18px; line-height: 1.1; }
 .execution-summary { margin: 16px 0; padding: 11px; background: #fff; border: 1px solid #dfe4ea; border-radius: 7px; }
 .execution-summary > div { min-height: 32px; display: flex; align-items: center; justify-content: space-between; color: #7b8797; font-size: 11px; }
 .execution-summary > div + div { border-top: 1px solid #edf0f3; }
@@ -337,4 +343,9 @@ img { display: block; max-width: 100%; }
 @media (max-width: 480px) {
   .reference-pair { grid-template-columns: 1fr; }
   .reference-preview, .reference-dropzone { aspect-ratio: 16 / 9; }
+}
+
+@media (max-width: 420px) {
+  .scheduler-stats { grid-template-columns: 1fr; }
+  .scheduler-stats > div + div { border-top: 1px solid #dfe4ea; border-left: 0; }
 }

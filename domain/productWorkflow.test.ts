@@ -107,16 +107,22 @@ describe("product workflow", () => {
     expect(applyProductReferenceFilename({ ...automatic, name: "婚宴系列", nameSource: "manual" }, "新图.png").name).toBe("婚宴系列");
   });
 
-  it("derives compact display states from the persisted workflow", () => {
+  it("derives batch display states with queued, generating, and terminal precedence", () => {
     const batch = createProductBatch();
-    batch.runPhase = "generating-images";
-    batch.images = [
-      { ...createImageJobs({ ...batch, prompts: [{ id: "a", prompt: "A", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }] })[0], status: "completed" },
-      { ...createImageJobs({ ...batch, prompts: [{ id: "b", prompt: "B", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }] })[0], status: "generating" }
-    ];
-    expect(getBatchDisplayStatus(batch)).toEqual({ tone: "blue", label: "生图中 1/2" });
-    batch.runPhase = "idle";
-    expect(getBatchDisplayStatus(batch)).toEqual({ tone: "blue", label: "生图中 1/2" });
+    const prompt = { id: "a", prompt: "A", selected: true, status: "ready" as const, createdAt: 1, updatedAt: 1 };
+    const jobs = createImageJobs({ ...batch, prompts: Array.from({ length: 5 }, (_, index) => ({ ...prompt, id: `${prompt.id}-${index}` })) });
+    const withStatuses = (statuses: Array<(typeof jobs)[number]["status"]>) => ({
+      ...batch,
+      runPhase: "generating-images" as const,
+      images: jobs.map((job, index) => ({ ...job, status: statuses[index] }))
+    });
+
+    expect(getBatchDisplayStatus(withStatuses(["queued", "queued", "queued", "queued", "queued"]))).toEqual({ tone: "blue", label: "排队中" });
+    expect(getBatchDisplayStatus(withStatuses(["completed", "generating", "queued", "queued", "queued"]))).toEqual({ tone: "blue", label: "生图中 1/5" });
+    expect(getBatchDisplayStatus({ ...withStatuses(["completed", "failed", "failed", "failed", "failed"]), runPhase: "completed" })).toEqual({ tone: "orange", label: "部分完成" });
+    expect(getBatchDisplayStatus({ ...withStatuses(["completed", "completed", "completed", "completed", "completed"]), runPhase: "completed" })).toEqual({ tone: "green", label: "已完成" });
+    expect(getBatchDisplayStatus({ ...withStatuses(["completed", "stopped", "stopped", "stopped", "stopped"]), runPhase: "completed" })).toEqual({ tone: "orange", label: "部分完成" });
+    expect(getBatchDisplayStatus({ ...withStatuses(["stopped", "stopped", "stopped", "stopped", "stopped"]), runPhase: "stopped" })).toEqual({ tone: "orange", label: "已停止" });
   });
 
   it("shows a stopped batch as an orange resumable state", () => {

@@ -297,6 +297,29 @@ describe("App multi-batch Muzhi orchestration", () => {
     expect(runSignals.get("B")?.aborted).toBe(true);
   });
 
+  it("shows the global Muzhi scheduler control and restores per-batch concurrency for APIMart", async () => {
+    const { container } = await mountApp();
+
+    expect(container.textContent).toContain("Muzhi 全局并发");
+    expect(container.textContent).toContain("7 / 10");
+    expect(container.textContent).toContain("实际生成");
+    expect(container.textContent).toContain("排队任务");
+    expect(container.textContent).toContain("运行批次");
+    const muzhiControl = container.querySelector<HTMLInputElement>(".concurrency-setting input");
+    expect(muzhiControl?.min).toBe("1");
+    expect(muzhiControl?.max).toBe("10");
+    expect(muzhiControl?.value).toBe("7");
+
+    await clickButton(container, "APIMart");
+
+    expect(container.textContent).toContain("并发数量");
+    expect(container.textContent).toContain("批量稳定优先，建议保持 1");
+    const apimartControl = container.querySelector<HTMLInputElement>(".concurrency-setting input");
+    expect(apimartControl?.min).toBe("1");
+    expect(apimartControl?.max).toBe("3");
+    expect(apimartControl?.value).toBe("1");
+  });
+
   it("keeps a retried Muzhi snapshot behind the shared scheduler after the batch switches provider", async () => {
     const blocking = readyMuzhiBatch("A", 1);
     const switched = resumableBatch("B", "apimart", [imageJob("B", 1, "muzhi", "failed")]);

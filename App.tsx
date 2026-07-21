@@ -32,7 +32,7 @@ import {
   type ImageGeneration,
   type ProductBatch
 } from "./domain/productWorkflow";
-import { DEFAULT_MUZHI_GLOBAL_CONCURRENCY } from "./domain/muzhiConcurrency";
+import { DEFAULT_MUZHI_GLOBAL_CONCURRENCY, normalizeMuzhiGlobalConcurrency } from "./domain/muzhiConcurrency";
 import { generateImage } from "./services/geminiService";
 import { buildJobReferencePrompt, isGenerationAbort, prepareJobReferencesForRequest, runProductImageJobs } from "./services/productImageQueue";
 import { generateProductPromptPlan, generateProductPrompts } from "./services/productPromptService";
@@ -770,11 +770,24 @@ const App: React.FC = () => {
             <label>分辨率<select value={activeBatch.imageSize} onChange={event => patchActiveBatch({ imageSize: event.target.value as ImageSize })}>{["1K", "2K", "4K"].map(size => <option key={size}>{size}</option>)}</select></label>
           </div>
 
-          <div className="setting-group concurrency-setting">
-            <label><span>并发数量</span><strong>{activeBatch.concurrency}</strong></label>
-            <input type="range" min={1} max={3} value={activeBatch.concurrency} onChange={event => patchActiveBatch({ concurrency: Number(event.target.value) })} />
-            <small>批量稳定优先，建议保持 1</small>
-          </div>
+          {activeBatch.imageProvider === "muzhi" ? (
+            <div className="setting-group concurrency-setting">
+              <label><span>Muzhi 全局并发</span><strong>{muzhiGlobalConcurrency} / 10</strong></label>
+              <input type="range" min={1} max={10} value={muzhiGlobalConcurrency} onChange={event => setMuzhiGlobalConcurrency(normalizeMuzhiGlobalConcurrency(event.target.value))} />
+              <small>所有 Muzhi 批次共享此并发上限</small>
+              <div className="scheduler-stats" aria-live="polite">
+                <div><span>实际生成</span><strong>{muzhiSnapshot.activeCount}</strong></div>
+                <div><span>排队任务</span><strong>{muzhiSnapshot.queuedCount}</strong></div>
+                <div><span>运行批次</span><strong>{muzhiSnapshot.runningBatchCount}</strong></div>
+              </div>
+            </div>
+          ) : (
+            <div className="setting-group concurrency-setting">
+              <label><span>并发数量</span><strong>{activeBatch.concurrency}</strong></label>
+              <input type="range" min={1} max={3} value={activeBatch.concurrency} onChange={event => patchActiveBatch({ concurrency: Number(event.target.value) })} />
+              <small>批量稳定优先，建议保持 1</small>
+            </div>
+          )}
 
           <div className="execution-summary">
             <div><span>风格参考图</span><strong>{activeBatch.styleReferenceImage ? "已绑定" : "未上传"}</strong></div>
