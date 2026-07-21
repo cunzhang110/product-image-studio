@@ -323,11 +323,21 @@ export class MuzhiBatchScheduler {
 
   private emitRun(run: BatchRun): void {
     const jobs = cloneJobs(run.jobs);
-    for (const onJobs of run.onJobs) onJobs(jobs);
+    for (const onJobs of run.onJobs) {
+      try {
+        onJobs(jobs);
+      } catch (error) {
+        console.error("[Muzhi scheduler] 任务进度回调失败", error);
+      }
+    }
     this.emitSnapshot();
   }
 
   private emitSnapshot(): void {
-    this.onSnapshot?.(this.getSnapshot());
+    try {
+      this.onSnapshot?.(this.getSnapshot());
+    } catch (error) {
+      console.error("[Muzhi scheduler] 调度状态回调失败", error);
+    }
   }
 }

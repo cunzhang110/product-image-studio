@@ -281,6 +281,8 @@ const App: React.FC = () => {
 
   const deleteBatch = (batchId: string) => {
     if (!window.confirm("确定删除当前产品批次吗？其中的提示词和生图结果也会一起删除。")) return;
+    runRegistryRef.current!.stop(batchId);
+    muzhiSchedulerRef.current!.cancel(batchId);
     if (batches.length === 1) {
       const next = createPreferredProductBatch("我的产品批次", promptTemplatePreference);
       setBatches([next]);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ImageGeneration } from "../domain/productWorkflow";
 import { MuzhiBatchScheduler } from "./muzhiBatchScheduler";
 
@@ -32,6 +32,26 @@ const makeJob = (batchId: string, suffix: string): ImageGeneration => ({
 });
 
 describe("Muzhi batch scheduler", () => {
+  it("keeps scheduling when progress and snapshot callbacks throw", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const scheduler = new MuzhiBatchScheduler(1, () => {
+      throw new Error("snapshot failed");
+    });
+    const result = await scheduler.enqueue({
+      batchId: "A",
+      jobs: [makeJob("A", "1"), makeJob("A", "2")],
+      onJobs: () => {
+        throw new Error("progress failed");
+      },
+      worker: async job => `data:${job.id}`
+    });
+
+    expect(result.map(job => job.status)).toEqual(["completed", "completed"]);
+    expect(scheduler.getSnapshot()).toEqual({ limit: 1, activeCount: 0, queuedCount: 0, runningBatchCount: 0 });
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("limits all batches to seven while keeping one active image per batch", async () => {
     const gates = new Map<string, ReturnType<typeof deferred<string>>>();
     const activeByBatch = new Map<string, number>();

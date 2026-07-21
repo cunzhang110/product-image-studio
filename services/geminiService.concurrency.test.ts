@@ -111,4 +111,31 @@ describe("provider request gate", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenCalledOnce();
   });
+
+  it("holds new Muzhi requests until a shared 429 cooldown expires", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "slow down" } }), {
+        status: 429,
+        headers: { "Retry-After": "0" }
+      }))
+      .mockImplementation(() => Promise.resolve(okImageResponse("ok")));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const requestProviderJson = await loadRequestProviderJson();
+
+    const first = requestProviderJson<{ id: string }>("muzhi", "/v1/images/generations", requestInit);
+    await flushMicrotasks();
+    const second = requestProviderJson<{ id: string }>("muzhi", "/v1/images/generations", requestInit);
+    await flushMicrotasks();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(Promise.all([first, second])).resolves.toEqual([{ id: "ok" }, { id: "ok" }]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });

@@ -312,6 +312,8 @@ const withSerializedProviderSlot = async <T>(provider: ServiceProvider, task: ()
 const withRequestSlot = async <T>(provider: ServiceProvider, task: () => Promise<T>, signal?: AbortSignal) => {
   if (provider === "muzhi") {
     if (signal?.aborted) throw createAbortError();
+    const waitMs = requestSlotStates[provider].nextAllowedRequestAt - Date.now();
+    if (waitMs > 0) await sleep(waitMs, signal);
     return task();
   }
   return withSerializedProviderSlot(provider, task, signal);
