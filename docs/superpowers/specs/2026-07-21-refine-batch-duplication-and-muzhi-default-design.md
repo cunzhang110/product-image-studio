@@ -67,3 +67,11 @@ React 测试验证：
 - 不等待原批次完成后再复制。
 - 不把已有批次或复制来源批次强制切换到 Muzhi。
 - 不修改供应商调度、密钥或 API 请求格式。
+
+## 交付与部署
+
+- 完整测试、TypeScript 检查、生产构建和差异检查通过后合并到 `main`。
+- 推送 `main` 到 GitHub 仓库 `cunzhang110/product-image-studio`。
+- 部署到 Vercel 项目 `product-image-studio` 的生产环境。
+- 使用 Vercel CLI 确认部署状态为 `Ready`，且生产别名包含 `chanpinshengtu.vercel.app`。
+- 不以真实付费生图作为部署验证；生产页面和供应商链路如需冒烟测试，仍遵守小规模、用户确认原则。
