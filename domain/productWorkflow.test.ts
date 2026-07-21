@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyProductReferenceFilename, buildCustomAnchoredPrompts, buildCustomBranchPrompt, createDefaultWineExtensionNodes, createImageJobs, createProductBatch, DEFAULT_PRODUCT_PROMPT_TEMPLATE, getBatchDisplayStatus, getImageRunPhase, getPlannedImageCount, isSupportedImageFile, normalizeProductBatch, parsePromptList } from "./productWorkflow";
+import { applyProductReferenceFilename, buildCustomAnchoredPrompts, buildCustomBranchPrompt, createDefaultWineExtensionNodes, createImageJobs, createProductBatch, DEFAULT_PRODUCT_PROMPT_TEMPLATE, duplicateProductBatch, getBatchDisplayStatus, getImageRunPhase, getPlannedImageCount, isSupportedImageFile, normalizeProductBatch, parsePromptList } from "./productWorkflow";
 
 describe("product workflow", () => {
   it.each(["png", "jpg", "jpeg", "webp", "gif", "heic", "heif", "avif", "bmp"])(
@@ -34,6 +34,63 @@ describe("product workflow", () => {
     expect(batch.promptModel).toBe("qwen/qwen3.5-9b");
     expect(batch.sameSceneBranchMode).toBe("ai-random");
     expect(batch.extensionNodes).toEqual([]);
+  });
+
+  it("duplicates references, settings, and prompts while clearing generated state", () => {
+    const source = createProductBatch("婚宴酒");
+    source.nameSource = "manual";
+    source.productReferenceImage = "data:image/png;base64,product";
+    source.styleReferenceImage = "data:image/png;base64,style";
+    source.creativeGuide = "暖色婚宴";
+    source.workflowMode = "automatic";
+    source.promptStrategy = "anchored-angles";
+    source.sameSceneBranchMode = "custom-map";
+    source.extensionNodes = [{ id: "node-1", type: "camera", instruction: "左侧近景" }];
+    source.prompts = [{ id: "prompt-1", prompt: "宴会桌面", selected: false, status: "ready", createdAt: 1, updatedAt: 2 }];
+    source.images = createImageJobs({ ...source, prompts: source.prompts.map(prompt => ({ ...prompt, selected: true })) });
+    source.runPhase = "completed";
+    source.runError = "old error";
+    source.sceneBible = "old scene";
+    source.anchorImageId = "old-anchor";
+    source.stage = "results";
+
+    const copy = duplicateProductBatch(source, [source.name]);
+
+    expect(copy).toMatchObject({
+      name: "婚宴酒 - 副本",
+      nameSource: "automatic",
+      productReferenceImage: source.productReferenceImage,
+      styleReferenceImage: source.styleReferenceImage,
+      creativeGuide: "暖色婚宴",
+      workflowMode: "automatic",
+      promptStrategy: "anchored-angles",
+      sameSceneBranchMode: "custom-map",
+      runPhase: "idle",
+      sceneBible: "",
+      stage: "review",
+      images: []
+    });
+    expect(copy.id).not.toBe(source.id);
+    expect(copy.runError).toBeUndefined();
+    expect(copy.anchorImageId).toBeUndefined();
+    expect(copy.prompts).toEqual([{ ...source.prompts[0], id: expect.any(String) }]);
+    expect(copy.prompts[0]).not.toBe(source.prompts[0]);
+    expect(copy.extensionNodes[0]).not.toBe(source.extensionNodes[0]);
+    expect(copy.extensionNodes[0].id).not.toBe(source.extensionNodes[0].id);
+  });
+
+  it("increments duplicate names and keeps an empty copy in setup", () => {
+    const source = createProductBatch("婚宴酒");
+    const first = duplicateProductBatch(source, ["婚宴酒"]);
+    const second = duplicateProductBatch(source, ["婚宴酒", "婚宴酒 - 副本"]);
+    const third = duplicateProductBatch(source, ["婚宴酒", "婚宴酒 - 副本", "婚宴酒 - 副本 2"]);
+
+    expect([first.name, second.name, third.name]).toEqual([
+      "婚宴酒 - 副本",
+      "婚宴酒 - 副本 2",
+      "婚宴酒 - 副本 3"
+    ]);
+    expect(first.stage).toBe("setup");
   });
 
   it("migrates persisted prompt settings to the fixed OpenRouter model", () => {

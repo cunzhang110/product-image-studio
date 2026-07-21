@@ -145,6 +145,38 @@ export const createProductBatch = (
   };
 };
 
+const getDuplicateBatchName = (sourceName: string, existingNames: Iterable<string>) => {
+  const occupied = new Set(Array.from(existingNames, name => name.trim()));
+  const baseName = `${sourceName.trim() || "未命名产品"} - 副本`;
+  if (!occupied.has(baseName)) return baseName;
+  let index = 2;
+  while (occupied.has(`${baseName} ${index}`)) index += 1;
+  return `${baseName} ${index}`;
+};
+
+export const duplicateProductBatch = (
+  source: ProductBatch,
+  existingNames: Iterable<string>
+): ProductBatch => {
+  const now = Date.now();
+  return {
+    ...source,
+    id: createId(),
+    name: getDuplicateBatchName(source.name, existingNames),
+    nameSource: "automatic",
+    extensionNodes: source.extensionNodes.map(node => ({ ...node, id: createId() })),
+    prompts: source.prompts.map(prompt => ({ ...prompt, id: createId() })),
+    images: [],
+    runPhase: "idle",
+    runError: undefined,
+    sceneBible: "",
+    anchorImageId: undefined,
+    stage: source.prompts.length > 0 ? "review" : "setup",
+    createdAt: now,
+    updatedAt: now
+  };
+};
+
 export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => {
   const productReferenceImage = batch.productReferenceImage || batch.referenceImage || "";
   const styleReferenceImage = batch.styleReferenceImage || "";
