@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Boxes,
   ChevronRight,
+  Copy,
   Download,
   Image as ImageIcon,
   KeyRound,
@@ -25,6 +26,7 @@ import {
   DEFAULT_PRODUCT_PROMPT_TEMPLATE,
   createImageJobs,
   applyProductReferenceFilename,
+  duplicateProductBatch,
   getBatchDisplayStatus,
   getImageRunPhase,
   getPlannedImageCount,
@@ -277,6 +279,14 @@ const App: React.FC = () => {
     const next = createPreferredProductBatch(`产品批次 ${batches.length + 1}`, promptTemplatePreference);
     setBatches(current => [next, ...current]);
     setActiveBatchId(next.id);
+  };
+
+  const duplicateBatch = () => {
+    if (!activeBatch || runningBatchIds.has(activeBatch.id)) return;
+    const copy = duplicateProductBatch(activeBatch, batches.map(batch => batch.name));
+    setBatches(current => [copy, ...current]);
+    setActiveBatchId(copy.id);
+    showToast("已复制产品批次", "success");
   };
 
   const deleteBatch = (batchId: string) => {
@@ -684,6 +694,7 @@ const App: React.FC = () => {
             ))}
           </div>
           <button className="new-batch-button" onClick={createBatch}><Plus size={16} />新建产品批次</button>
+          <button className="duplicate-batch-button" disabled={generationActive} onClick={duplicateBatch}><Copy size={14} />复制当前批次</button>
           <button className="delete-batch-button" onClick={() => deleteBatch(activeBatch.id)}><Trash2 size={14} />删除当前批次</button>
         </aside>
 

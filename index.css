@@ -84,8 +84,10 @@ img { display: block; max-width: 100%; }
 .batch-status.red { color: #b4232d; background: #ffeaec; }
 .batch-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .batch-copy small { overflow: hidden; color: #8893a2; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.new-batch-button, .delete-batch-button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; border-radius: 6px; font-size: 13px; font-weight: 800; }
+.new-batch-button, .duplicate-batch-button, .delete-batch-button { width: 100%; min-height: 42px; display: flex; align-items: center; justify-content: center; gap: 7px; border-radius: 6px; font-size: 13px; font-weight: 800; }
 .new-batch-button { margin-top: 10px; color: #fff; background: #1e293b; border: 0; }
+.duplicate-batch-button { margin-top: 6px; color: #334155; background: #fff; border: 1px solid var(--line); }
+.duplicate-batch-button:hover:not(:disabled) { background: #f8fafc; }
 .delete-batch-button { margin-top: 6px; color: #8a4a4e; background: transparent; border: 0; }
 .delete-batch-button:hover { background: #f9e9ea; }
 
@@ -307,7 +309,7 @@ img { display: block; max-width: 100%; }
   .topbar-button { font-size: 0; }
   .studio-layout { display: block; }
   .batch-rail { position: static; width: auto; height: auto; padding: 8px 10px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .rail-heading, .new-batch-button, .delete-batch-button { display: none; }
+  .rail-heading, .new-batch-button, .duplicate-batch-button, .delete-batch-button { display: none; }
   .batch-list { flex-direction: row; overflow-x: auto; }
   .batch-item { min-width: 190px; }
   .stage-nav { height: 52px; padding: 0 14px; gap: 18px; overflow-x: auto; }
