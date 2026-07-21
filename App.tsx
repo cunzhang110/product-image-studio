@@ -117,15 +117,19 @@ const App: React.FC = () => {
     runningBatchCount: 0
   });
   const [toast, setToast] = useState<{ message: string; tone: "success" | "error" | "info" } | null>(null);
+  const mountedRef = useRef(false);
   const runRegistryRef = useRef<BatchRunRegistry | null>(null);
   if (!runRegistryRef.current) {
-    runRegistryRef.current = new BatchRunRegistry(setRunningBatchIds);
+    runRegistryRef.current = new BatchRunRegistry(ids => {
+      if (mountedRef.current) setRunningBatchIds(ids);
+    });
   }
   const muzhiSchedulerRef = useRef<MuzhiBatchScheduler | null>(null);
   if (!muzhiSchedulerRef.current) {
-    muzhiSchedulerRef.current = new MuzhiBatchScheduler(DEFAULT_MUZHI_GLOBAL_CONCURRENCY, setMuzhiSnapshot);
+    muzhiSchedulerRef.current = new MuzhiBatchScheduler(DEFAULT_MUZHI_GLOBAL_CONCURRENCY, snapshot => {
+      if (mountedRef.current) setMuzhiSnapshot(snapshot);
+    });
   }
-  const mountedRef = useRef(false);
   const hydrationAttemptRef = useRef(0);
   const preferenceSaveAttemptRef = useRef(0);
   const muzhiPreferenceSaveAttemptRef = useRef(0);
@@ -233,7 +237,7 @@ const App: React.FC = () => {
   const beginRun = (batchId: string) => runRegistryRef.current!.begin(batchId);
 
   const isCurrentRun = (batchId: string, controller: AbortController) => (
-    runRegistryRef.current!.isCurrent(batchId, controller)
+    mountedRef.current && runRegistryRef.current!.isCurrent(batchId, controller)
   );
 
   const finishRun = (batchId: string, controller: AbortController) => {
@@ -323,23 +327,44 @@ const App: React.FC = () => {
     return generateImage(job.promptSnapshot, job.aspectRatio, job.imageSize, job.provider, references, job.model, referencePrompt, signal);
   };
 
-  const executeBatchJobs: ProductBatchWorkflowDependencies["runJobs"] = (batch, jobs, onJobs, signal) => (
-    batch.imageProvider === "muzhi"
-      ? muzhiSchedulerRef.current!.enqueue({
+  const executeBatchJobs: ProductBatchWorkflowDependencies["runJobs"] = async (batch, jobs, onJobs, signal) => {
+    const latestJobs = new Map(jobs.map(job => [job.id, job]));
+    const mergeJobs = (updates: ImageGeneration[]) => {
+      for (const job of updates) latestJobs.set(job.id, job);
+      return jobs.map(job => latestJobs.get(job.id) || job);
+    };
+    const emitMergedJobs = (updates: ImageGeneration[]) => onJobs(mergeJobs(updates));
+    const muzhiJobs = jobs.filter(job => job.provider === "muzhi");
+    const standardJobs = jobs.filter(job => job.provider !== "muzhi");
+    const runs: Promise<ImageGeneration[]>[] = [];
+
+    if (muzhiJobs.length) {
+      runs.push(muzhiSchedulerRef.current!.enqueue({
         batchId: batch.id,
-        jobs,
+        jobs: muzhiJobs,
         worker: generateJobImage,
-        onJobs,
+        onJobs: emitMergedJobs,
         signal
-      })
-      : runProductImageJobs(
-        jobs,
+      }));
+    }
+    if (standardJobs.length) {
+      runs.push(runProductImageJobs(
+        standardJobs,
         batch.concurrency,
         job => generateJobImage(job, signal),
-        onJobs,
+        emitMergedJobs,
         signal
-      )
-  );
+      ));
+    }
+    if (!runs.length) {
+      onJobs([]);
+      return [];
+    }
+
+    const completedGroups = await Promise.all(runs);
+    for (const completed of completedGroups) mergeJobs(completed);
+    return jobs.map(job => latestJobs.get(job.id) || job);
+  };
 
   const workflowDependencies: ProductBatchWorkflowDependencies = {
     generatePromptPlan: requestPromptPlan,
@@ -498,9 +523,12 @@ const App: React.FC = () => {
     if (runningBatchIds.has(batchId)) return;
     const controller = beginRun(batchId);
     const retryJob = { ...job, status: "idle" as const, error: undefined, resultUrl: undefined };
-    const otherJobs = activeBatch.images.filter(item => item.id !== job.id);
     try {
-      updateBatch(batchId, batch => ({ ...batch, images: [...otherJobs, retryJob], runPhase: "generating-images" }));
+      updateBatch(batchId, batch => ({
+        ...batch,
+        images: batch.images.map(item => item.id === job.id ? retryJob : item),
+        runPhase: "generating-images"
+      }));
       const result = await executeBatchJobs(activeBatch, [retryJob], nextJobs => {
         if (!isCurrentRun(batchId, controller)) return;
         updateBatch(batchId, batch => ({

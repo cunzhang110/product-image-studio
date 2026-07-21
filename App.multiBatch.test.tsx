@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, type Dispatch, type SetStateAction } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { createProductBatch, type ProductBatch, type PromptVariant } from "./domain/productWorkflow";
+import {
+  createProductBatch,
+  type ImageGeneration,
+  type ImageJobStatus,
+  type ProductBatch,
+  type PromptVariant
+} from "./domain/productWorkflow";
+import type { ServiceProvider } from "./types";
 
 const dbMocks = vi.hoisted(() => ({
   loadBatches: vi.fn(),
@@ -18,6 +25,26 @@ const dbMocks = vi.hoisted(() => ({
 const imageMocks = vi.hoisted(() => ({
   generateImage: vi.fn()
 }));
+
+const stateUpdateMocks = vi.hoisted(() => ({
+  track: false,
+  calls: 0
+}));
+
+vi.mock("react", async importOriginal => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    useState: <T,>(initialState: T | (() => T)) => {
+      const [state, setState] = actual.useState(initialState);
+      const trackedSetState: Dispatch<SetStateAction<T>> = value => {
+        if (stateUpdateMocks.track) stateUpdateMocks.calls += 1;
+        setState(value);
+      };
+      return [state, trackedSetState] as const;
+    }
+  };
+});
 
 vi.mock("./utils/db", () => ({
   loadProductBatchesFromDB: dbMocks.loadBatches,
@@ -73,6 +100,44 @@ const readyMuzhiBatch = (id: string, promptCount: number): ProductBatch => ({
   prompts: Array.from({ length: promptCount }, (_, index) => prompt(id, index + 1))
 });
 
+const imageJob = (
+  batchId: string,
+  index: number,
+  provider: ServiceProvider,
+  status: ImageJobStatus = "stopped",
+  resultUrl?: string
+): ImageGeneration => ({
+  id: `${batchId}-image-${index}`,
+  batchId,
+  promptVariantId: `${batchId}-prompt-${index}`,
+  promptSnapshot: `${batchId} prompt ${index}`,
+  productReferenceImageSnapshot: `data:image/png;base64,${batchId}`,
+  styleReferenceImageSnapshot: "",
+  role: "standard",
+  provider,
+  model: provider === "yunwu" ? "gemini-3.1-flash-image-preview" : "gpt-image-2",
+  aspectRatio: "3:4",
+  imageSize: "2K",
+  status,
+  resultUrl,
+  error: status === "failed" ? "request failed" : undefined,
+  createdAt: index
+});
+
+const resumableBatch = (
+  id: string,
+  imageProvider: ServiceProvider,
+  images: ImageGeneration[]
+): ProductBatch => ({
+  ...readyMuzhiBatch(id, images.length),
+  imageProvider,
+  imageModel: imageProvider === "yunwu" ? "gemini-3.1-flash-image-preview" : "gpt-image-2",
+  concurrency: 3,
+  stage: "results",
+  runPhase: "stopped",
+  images
+});
+
 const mountedApps: MountedApp[] = [];
 let runSignals: Map<string, AbortSignal>;
 let deferredWork: Map<string, Deferred<string>>;
@@ -124,6 +189,18 @@ const clickBatch = async (container: HTMLDivElement, batchId: string) => {
   });
 };
 
+const clickRetry = async (container: HTMLDivElement, promptText: string) => {
+  const item = Array.from(container.querySelectorAll<HTMLElement>(".result-item"))
+    .find(result => result.textContent?.includes(promptText));
+  const button = item?.querySelector<HTMLButtonElement>("button[title='重试']");
+  expect(button, `retry ${promptText}`).not.toBeNull();
+  await act(async () => {
+    button?.click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+};
+
 const startBothBatches = async (container: HTMLDivElement) => {
   await clickButton(container, "生成已选 2 张");
   await clickBatch(container, "B");
@@ -144,6 +221,8 @@ const unmountApp = async (app: MountedApp) => {
 describe("App multi-batch Muzhi orchestration", () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    stateUpdateMocks.track = false;
+    stateUpdateMocks.calls = 0;
     runSignals = new Map();
     deferredWork = new Map();
     dbMocks.loadBatches.mockReset().mockResolvedValue([
@@ -216,5 +295,136 @@ describe("App multi-batch Muzhi orchestration", () => {
 
     expect(runSignals.get("A")?.aborted).toBe(true);
     expect(runSignals.get("B")?.aborted).toBe(true);
+  });
+
+  it("keeps a retried Muzhi snapshot behind the shared scheduler after the batch switches provider", async () => {
+    const blocking = readyMuzhiBatch("A", 1);
+    const switched = resumableBatch("B", "apimart", [imageJob("B", 1, "muzhi", "failed")]);
+    dbMocks.loadBatches.mockResolvedValue([blocking, switched]);
+    dbMocks.loadMuzhiConcurrency.mockResolvedValue(1);
+    const { container } = await mountApp();
+
+    await clickButton(container, "生成已选 1 张");
+    await clickBatch(container, "B");
+    await clickRetry(container, "B prompt 1");
+
+    expect(deferredWork.has("A prompt 1")).toBe(true);
+    expect(deferredWork.has("B prompt 1")).toBe(false);
+
+    await act(async () => {
+      deferredWork.get("A prompt 1")?.resolve("data:image/png;base64,QQ==");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(deferredWork.has("B prompt 1")).toBe(true);
+  });
+
+  it("routes mixed resume jobs by snapshot provider and preserves their original order", async () => {
+    const mixed = resumableBatch("M", "muzhi", [
+      imageJob("M", 1, "apimart"),
+      imageJob("M", 2, "muzhi"),
+      imageJob("M", 3, "apimart")
+    ]);
+    dbMocks.loadBatches.mockResolvedValue([mixed]);
+    const { container } = await mountApp();
+
+    await clickButton(container, "继续剩余任务");
+
+    expect(deferredWork.has("M prompt 1")).toBe(true);
+    expect(deferredWork.has("M prompt 2")).toBe(true);
+    expect(deferredWork.has("M prompt 3")).toBe(true);
+    expect(Array.from(container.querySelectorAll<HTMLElement>(".result-item"))
+      .map(item => item.querySelector("p")?.textContent)).toEqual([
+      "M prompt 1",
+      "M prompt 2",
+      "M prompt 3"
+    ]);
+
+    await act(async () => {
+      deferredWork.get("M prompt 3")?.resolve("data:image/png;base64,TQMz");
+      deferredWork.get("M prompt 1")?.resolve("data:image/png;base64,TQMx");
+      deferredWork.get("M prompt 2")?.resolve("data:image/png;base64,TQMy");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const items = Array.from(container.querySelectorAll<HTMLElement>(".result-item"));
+    expect(items.map(item => item.querySelector("p")?.textContent)).toEqual([
+      "M prompt 1",
+      "M prompt 2",
+      "M prompt 3"
+    ]);
+    expect(items.map(item => item.querySelector("img")?.getAttribute("src"))).toEqual([
+      "data:image/png;base64,TQMx",
+      "data:image/png;base64,TQMy",
+      "data:image/png;base64,TQMz"
+    ]);
+  });
+
+  it("retries a middle image in place without changing neighbors or numbering", async () => {
+    const batch = resumableBatch("R", "apimart", [
+      imageJob("R", 1, "apimart", "completed", "data:image/png;base64,UjE="),
+      imageJob("R", 2, "apimart", "failed"),
+      imageJob("R", 3, "apimart", "completed", "data:image/png;base64,UjM=")
+    ]);
+    dbMocks.loadBatches.mockResolvedValue([batch]);
+    const { container } = await mountApp();
+
+    await clickRetry(container, "R prompt 2");
+
+    let items = Array.from(container.querySelectorAll<HTMLElement>(".result-item"));
+    expect(items.map(item => item.querySelector("p")?.textContent)).toEqual([
+      "R prompt 1",
+      "R prompt 2",
+      "R prompt 3"
+    ]);
+    expect(items.map(item => item.querySelector(".result-number")?.textContent)).toEqual(["01", "02", "03"]);
+    expect(items[0].querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,UjE=");
+    expect(items[2].querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,UjM=");
+
+    await act(async () => {
+      deferredWork.get("R prompt 2")?.resolve("data:image/png;base64,UjI=");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    items = Array.from(container.querySelectorAll<HTMLElement>(".result-item"));
+    expect(items.map(item => item.querySelector("p")?.textContent)).toEqual([
+      "R prompt 1",
+      "R prompt 2",
+      "R prompt 3"
+    ]);
+    expect(items.map(item => item.querySelector("img")?.getAttribute("src"))).toEqual([
+      "data:image/png;base64,UjE=",
+      "data:image/png;base64,UjI=",
+      "data:image/png;base64,UjM="
+    ]);
+    expect(items.map(item => item.querySelector(".result-number")?.textContent)).toEqual(["01", "02", "03"]);
+  });
+
+  it("does not dispatch state updates when teardown settles an abort-ignoring worker late", async () => {
+    dbMocks.loadBatches.mockResolvedValue([readyMuzhiBatch("L", 1)]);
+    const app = await mountApp();
+    await clickButton(app.container, "生成已选 1 张");
+    const deferred = deferredWork.get("L prompt 1");
+    expect(deferred).not.toBeUndefined();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    stateUpdateMocks.track = true;
+    await unmountApp(app);
+    expect(runSignals.get("L")?.aborted).toBe(true);
+    await act(async () => {
+      deferred?.resolve("data:image/png;base64,TA==");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(stateUpdateMocks.calls).toBe(0);
+    expect(consoleError).not.toHaveBeenCalled();
   });
 });
