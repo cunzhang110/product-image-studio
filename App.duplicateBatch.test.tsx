@@ -92,6 +92,7 @@ describe("App product batch duplication", () => {
     const source = createProductBatch("婚宴酒");
     source.productReferenceImage = "data:image/png;base64,product";
     source.styleReferenceImage = "data:image/png;base64,style";
+    source.creativeGuide = "婚宴场景";
     source.stage = "results";
     source.runPhase = "completed";
     source.prompts = [{ id: "prompt-1", prompt: "宴会桌面", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }];
@@ -112,23 +113,27 @@ describe("App product batch duplication", () => {
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("婚宴酒 - 副本");
     expect(items[0].classList.contains("active")).toBe(true);
-    expect(items[0].textContent).toContain("1 条提示词 · 0 张完成");
+    expect(items[0].textContent).toContain("0 条提示词 · 0 张完成");
     expect(container.textContent).toContain("已复制产品批次");
 
     await act(async () => vi.advanceTimersByTimeAsync(250));
     const saved = dbMocks.saveBatches.mock.calls.at(-1)?.[0] as ProductBatch[];
     expect(saved).toHaveLength(2);
-    expect(saved[0]).toMatchObject({ name: "婚宴酒 - 副本", images: [], stage: "review", runPhase: "idle" });
+    expect(saved[0]).toMatchObject({ name: "婚宴酒 - 副本", creativeGuide: "", prompts: [], images: [], stage: "setup", runPhase: "idle" });
     expect(saved[1]).toEqual(source);
   });
 
-  it("disables copying while the active batch is generating", async () => {
+  it("copies a clean setup batch without aborting the active source run", async () => {
     const source = createProductBatch("运行中批次");
     source.productReferenceImage = "data:image/png;base64,product";
     source.stage = "review";
     source.prompts = [{ id: "prompt-1", prompt: "运行中 prompt", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }];
     dbMocks.loadBatches.mockResolvedValue([source]);
-    imageMocks.generateImage.mockImplementation(() => new Promise(() => {}));
+    let sourceSignal: AbortSignal | undefined;
+    imageMocks.generateImage.mockImplementation((...args: unknown[]) => {
+      sourceSignal = args.at(-1) as AbortSignal;
+      return new Promise(() => {});
+    });
 
     const { container } = await mountApp();
     await flushHydration();
@@ -139,8 +144,10 @@ describe("App product batch duplication", () => {
     });
 
     const copyButton = container.querySelector<HTMLButtonElement>(".duplicate-batch-button");
-    expect(copyButton?.disabled).toBe(true);
-    copyButton?.click();
-    expect(container.querySelectorAll(".batch-item")).toHaveLength(1);
+    expect(copyButton?.disabled).toBe(false);
+    await act(async () => copyButton?.click());
+    expect(container.querySelectorAll(".batch-item")).toHaveLength(2);
+    expect(container.querySelector(".batch-item.active")?.textContent).toContain("0 条提示词 · 0 张完成");
+    expect(sourceSignal?.aborted).toBe(false);
   });
 });

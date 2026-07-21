@@ -32,11 +32,13 @@ describe("product workflow", () => {
     expect(batch.prompts).toEqual([]);
     expect(batch.promptProvider).toBe("openrouter");
     expect(batch.promptModel).toBe("qwen/qwen3.5-9b");
+    expect(batch.imageProvider).toBe("muzhi");
+    expect(batch.imageModel).toBe("gpt-image-2");
     expect(batch.sameSceneBranchMode).toBe("ai-random");
     expect(batch.extensionNodes).toEqual([]);
   });
 
-  it("duplicates references, settings, and prompts while clearing generated state", () => {
+  it("duplicates references and settings while clearing creative and generated state", () => {
     const source = createProductBatch("婚宴酒");
     source.nameSource = "manual";
     source.productReferenceImage = "data:image/png;base64,product";
@@ -61,20 +63,22 @@ describe("product workflow", () => {
       nameSource: "automatic",
       productReferenceImage: source.productReferenceImage,
       styleReferenceImage: source.styleReferenceImage,
-      creativeGuide: "暖色婚宴",
+      creativeGuide: "",
       workflowMode: "automatic",
       promptStrategy: "anchored-angles",
       sameSceneBranchMode: "custom-map",
       runPhase: "idle",
       sceneBible: "",
-      stage: "review",
+      stage: "setup",
+      prompts: [],
       images: []
     });
     expect(copy.id).not.toBe(source.id);
     expect(copy.runError).toBeUndefined();
     expect(copy.anchorImageId).toBeUndefined();
-    expect(copy.prompts).toEqual([{ ...source.prompts[0], id: expect.any(String) }]);
-    expect(copy.prompts[0]).not.toBe(source.prompts[0]);
+    expect(source.creativeGuide).toBe("暖色婚宴");
+    expect(source.prompts).toHaveLength(1);
+    expect(source.images).toHaveLength(1);
     expect(copy.extensionNodes[0]).not.toBe(source.extensionNodes[0]);
     expect(copy.extensionNodes[0].id).not.toBe(source.extensionNodes[0].id);
   });
@@ -96,6 +100,8 @@ describe("product workflow", () => {
   it("migrates persisted prompt settings to the fixed OpenRouter model", () => {
     const legacy = {
       ...createProductBatch("旧批次"),
+      imageProvider: "yunwu",
+      imageModel: "gemini-3.1-flash-image-preview",
       referenceImage: "data:image/png;base64,legacy-product",
       productReferenceImage: undefined,
       styleReferenceImage: undefined,
@@ -106,6 +112,8 @@ describe("product workflow", () => {
     expect(normalizeProductBatch(legacy)).toMatchObject({
       promptProvider: "openrouter",
       promptModel: "qwen/qwen3.5-9b",
+      imageProvider: "yunwu",
+      imageModel: "gemini-3.1-flash-image-preview",
       productReferenceImage: "data:image/png;base64,legacy-product",
       styleReferenceImage: ""
     });
