@@ -201,6 +201,33 @@ const clickRetry = async (container: HTMLDivElement, promptText: string) => {
   });
 };
 
+const rangeForLabel = (container: HTMLDivElement, labelText: string) => {
+  const label = Array.from(container.querySelectorAll<HTMLLabelElement>("label"))
+    .find(item => item.textContent?.includes(labelText));
+  expect(label, `label containing ${labelText}`).not.toBeUndefined();
+  expect(label?.control, `control labelled ${labelText}`).toBeInstanceOf(HTMLInputElement);
+  const control = label!.control as HTMLInputElement;
+  expect(control.type).toBe("range");
+  return control;
+};
+
+const setRangeValue = async (control: HTMLInputElement, value: number) => {
+  await act(async () => {
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    valueSetter?.call(control, String(value));
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+};
+
+const schedulerStat = (container: HTMLDivElement, label: string) => {
+  const stat = Array.from(container.querySelectorAll<HTMLElement>(".scheduler-stats > div"))
+    .find(item => item.querySelector("span")?.textContent === label);
+  expect(stat, `scheduler stat ${label}`).not.toBeUndefined();
+  return stat?.querySelector("strong")?.textContent;
+};
+
 const startBothBatches = async (container: HTMLDivElement) => {
   await clickButton(container, "生成已选 2 张");
   await clickBatch(container, "B");
@@ -297,27 +324,52 @@ describe("App multi-batch Muzhi orchestration", () => {
     expect(runSignals.get("B")?.aborted).toBe(true);
   });
 
-  it("shows the global Muzhi scheduler control and restores per-batch concurrency for APIMart", async () => {
+  it("associates stable accessible labels with the Muzhi and per-batch sliders", async () => {
     const { container } = await mountApp();
 
-    expect(container.textContent).toContain("Muzhi 全局并发");
-    expect(container.textContent).toContain("7 / 10");
-    expect(container.textContent).toContain("实际生成");
-    expect(container.textContent).toContain("排队任务");
-    expect(container.textContent).toContain("运行批次");
-    const muzhiControl = container.querySelector<HTMLInputElement>(".concurrency-setting input");
-    expect(muzhiControl?.min).toBe("1");
-    expect(muzhiControl?.max).toBe("10");
-    expect(muzhiControl?.value).toBe("7");
+    const muzhiControl = rangeForLabel(container, "Muzhi 全局并发");
+    expect(muzhiControl.id).toBe("muzhi-global-concurrency");
+    expect(muzhiControl.min).toBe("1");
+    expect(muzhiControl.max).toBe("10");
 
     await clickButton(container, "APIMart");
 
-    expect(container.textContent).toContain("并发数量");
-    expect(container.textContent).toContain("批量稳定优先，建议保持 1");
-    const apimartControl = container.querySelector<HTMLInputElement>(".concurrency-setting input");
-    expect(apimartControl?.min).toBe("1");
-    expect(apimartControl?.max).toBe("3");
-    expect(apimartControl?.value).toBe("1");
+    const apimartControl = rangeForLabel(container, "批次并发数量");
+    expect(apimartControl.id).toBe("batch-concurrency");
+    expect(apimartControl.min).toBe("1");
+    expect(apimartControl.max).toBe("3");
+  });
+
+  it("persists Muzhi slider changes and reports active and queued scheduler work", async () => {
+    dbMocks.loadBatches.mockResolvedValue([readyMuzhiBatch("A", 6)]);
+    const { container } = await mountApp();
+    dbMocks.saveMuzhiConcurrency.mockClear();
+
+    const muzhiControl = rangeForLabel(container, "Muzhi 全局并发");
+    expect(muzhiControl.value).toBe("7");
+    await setRangeValue(muzhiControl, 5);
+    await flushWork();
+
+    expect(container.textContent).toContain("5 / 10");
+    expect(muzhiControl.value).toBe("5");
+    expect(dbMocks.saveMuzhiConcurrency).toHaveBeenCalledWith(5);
+
+    await clickButton(container, "生成已选 6 张");
+    expect(schedulerStat(container, "实际生成")).toBe("1");
+    expect(schedulerStat(container, "排队任务")).toBe("5");
+    expect(schedulerStat(container, "运行批次")).toBe("1");
+
+    await clickButton(container, "停止生成");
+    expect(schedulerStat(container, "排队任务")).toBe("0");
+    await act(async () => {
+      deferredWork.get("A prompt 1")?.resolve("data:image/png;base64,QQ==");
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(schedulerStat(container, "实际生成")).toBe("0");
+    expect(schedulerStat(container, "排队任务")).toBe("0");
+    expect(schedulerStat(container, "运行批次")).toBe("0");
   });
 
   it("keeps a retried Muzhi snapshot behind the shared scheduler after the batch switches provider", async () => {

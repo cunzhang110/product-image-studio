@@ -772,8 +772,8 @@ const App: React.FC = () => {
 
           {activeBatch.imageProvider === "muzhi" ? (
             <div className="setting-group concurrency-setting">
-              <label><span>Muzhi 全局并发</span><strong>{muzhiGlobalConcurrency} / 10</strong></label>
-              <input type="range" min={1} max={10} value={muzhiGlobalConcurrency} onChange={event => setMuzhiGlobalConcurrency(normalizeMuzhiGlobalConcurrency(event.target.value))} />
+              <label htmlFor="muzhi-global-concurrency"><span>Muzhi 全局并发</span><strong>{muzhiGlobalConcurrency} / 10</strong></label>
+              <input id="muzhi-global-concurrency" type="range" min={1} max={10} value={muzhiGlobalConcurrency} onChange={event => setMuzhiGlobalConcurrency(normalizeMuzhiGlobalConcurrency(event.target.value))} />
               <small>所有 Muzhi 批次共享此并发上限</small>
               <div className="scheduler-stats" aria-live="polite">
                 <div><span>实际生成</span><strong>{muzhiSnapshot.activeCount}</strong></div>
@@ -783,8 +783,8 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="setting-group concurrency-setting">
-              <label><span>并发数量</span><strong>{activeBatch.concurrency}</strong></label>
-              <input type="range" min={1} max={3} value={activeBatch.concurrency} onChange={event => patchActiveBatch({ concurrency: Number(event.target.value) })} />
+              <label htmlFor="batch-concurrency"><span>批次并发数量</span><strong>{activeBatch.concurrency}</strong></label>
+              <input id="batch-concurrency" type="range" min={1} max={3} value={activeBatch.concurrency} onChange={event => patchActiveBatch({ concurrency: Number(event.target.value) })} />
               <small>批量稳定优先，建议保持 1</small>
             </div>
           )}
