@@ -11,6 +11,7 @@ export type SameSceneBranchMode = "ai-random" | "custom-map";
 export type ExtensionNodeType = "camera" | "action" | "camera-action";
 export type BatchRunPhase = "idle" | "generating-prompts" | "generating-anchor" | "awaiting-anchor-approval" | "generating-images" | "completed" | "failed" | "stopped";
 export type BatchNameSource = "automatic" | "manual";
+export type PhotoFinishLevel = "off" | "subtle" | "natural";
 export type ImageGenerationRole = "standard" | "anchor" | "derived";
 export type BatchStatusTone = "gray" | "purple" | "blue" | "orange" | "green" | "red";
 
@@ -67,6 +68,7 @@ export interface ImageGeneration {
   imageSize: ImageSize;
   status: ImageJobStatus;
   resultUrl?: string;
+  finishedResultUrl?: string;
   error?: string;
   createdAt: number;
 }
@@ -88,6 +90,7 @@ export interface ProductBatch {
   aspectRatio: AspectRatio;
   imageSize: ImageSize;
   concurrency: number;
+  photoFinishLevel: PhotoFinishLevel;
   workflowMode: WorkflowMode;
   promptStrategy: PromptStrategy;
   sameSceneBranchMode: SameSceneBranchMode;
@@ -131,6 +134,7 @@ export const createProductBatch = (
     aspectRatio: "3:4",
     imageSize: "2K",
     concurrency: 1,
+    photoFinishLevel: "subtle",
     workflowMode: "manual",
     promptStrategy: "varied-scenes",
     sameSceneBranchMode: "ai-random",
@@ -195,6 +199,7 @@ export const normalizeProductBatch = (batch: ProductBatch): ProductBatch => {
       }))
       : [],
     runPhase: batch.runPhase || "idle",
+    photoFinishLevel: batch.photoFinishLevel || "subtle",
     sceneBible: batch.sceneBible || "",
     productReferenceImage,
     styleReferenceImage,

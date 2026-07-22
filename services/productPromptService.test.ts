@@ -25,6 +25,8 @@ describe("product prompt request", () => {
     expect(body.messages[1].content[1].text).toContain("8 条");
     expect(body.messages[1].content[1].text).toContain("风格参考图");
     expect(body.messages[1].content[1].text).toContain("不要推断产品外观");
+    expect(body.messages[1].content[1].text).toContain("接触阴影");
+    expect(body.messages[1].content[1].text).toContain("避免过度 HDR");
   });
 
   it("requires a style reference image", () => {
@@ -38,6 +40,8 @@ describe("product prompt request", () => {
     expect(text).toContain("1 张主场景");
     expect(text).toContain("5 个不同机位");
     expect(text).toContain("sceneBible");
+    expect(text).toContain("接触阴影");
+    expect(text).toContain("真实镜头规律");
   });
 
   it("parses a complete anchored scene plan", () => {

@@ -24,6 +24,12 @@ type PromptRequest = {
   body: Record<string, unknown>;
 };
 
+const REAL_PHOTO_RULES = [
+  "每条最终提示词都必须遵守真实摄影约束：使用符合现实世界的主光源与合理补光，产品与桌面、手部或道具之间具有方向一致的接触阴影。",
+  "反射、透明度、材质高光、景深和透视必须符合真实镜头规律；允许轻微自然曝光偏差和手机摄影质感。",
+  "避免过度 HDR、过度锐化、塑料质感、无瑕表面、主体悬浮和不合理光晕，不得损害产品、标签、Logo 和文字。"
+].join("\n");
+
 const buildVariedPromptInstruction = (input: ProductPromptInput) => [
   `请参考风格参考图，为“${input.productName || "产品"}”生成 ${input.count} 条可直接用于图片生成的中文提示词。`,
   "分析风格参考图的构图、光线、色彩、场景、镜头语言和整体调性，并将这些视觉特征转化为提示词。",
@@ -31,6 +37,7 @@ const buildVariedPromptInstruction = (input: ProductPromptInput) => [
   "真正的产品参考图会在生图阶段另行提供；每条提示词都应要求以产品参考图中的产品为清晰主角，并保持其外观完全一致。",
   `提示词模板：${input.promptTemplate.trim() || "保持产品参考图中的产品真实、清晰、可识别"}`,
   `创作引导：${input.creativeGuide.trim() || "在不同真实商业场景中变化画面"}`,
+  REAL_PHOTO_RULES,
   "只返回 JSON 字符串数组，不要编号，不要解释，不要 Markdown。"
 ].join("\n");
 
@@ -42,6 +49,7 @@ const buildAnchoredPromptInstruction = (input: ProductPromptInput) => [
   "产品外观由生图阶段的产品参考图约束，不要复制风格图中原有商品、品牌、Logo 或文字。",
   `提示词模板：${input.promptTemplate.trim() || "保持产品参考图中的产品真实、清晰、可识别"}`,
   `创作引导：${input.creativeGuide.trim() || "真实商业摄影，环境与道具保持一致"}`,
+  REAL_PHOTO_RULES,
   "只返回 JSON 对象，格式为 {\"sceneBible\":\"环境固定字段\",\"anchorPrompt\":\"主场景提示词\",\"anglePrompts\":[\"机位提示词\"]}，不要解释或 Markdown。"
 ].join("\n");
 

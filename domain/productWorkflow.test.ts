@@ -34,6 +34,7 @@ describe("product workflow", () => {
     expect(batch.promptModel).toBe("qwen/qwen3.5-9b");
     expect(batch.imageProvider).toBe("muzhi");
     expect(batch.imageModel).toBe("gpt-image-2");
+    expect(batch.photoFinishLevel).toBe("subtle");
     expect(batch.sameSceneBranchMode).toBe("ai-random");
     expect(batch.extensionNodes).toEqual([]);
   });
@@ -102,6 +103,7 @@ describe("product workflow", () => {
       ...createProductBatch("旧批次"),
       imageProvider: "yunwu",
       imageModel: "gemini-3.1-flash-image-preview",
+      photoFinishLevel: undefined,
       referenceImage: "data:image/png;base64,legacy-product",
       productReferenceImage: undefined,
       styleReferenceImage: undefined,
@@ -114,6 +116,7 @@ describe("product workflow", () => {
       promptModel: "qwen/qwen3.5-9b",
       imageProvider: "yunwu",
       imageModel: "gemini-3.1-flash-image-preview",
+      photoFinishLevel: "subtle",
       productReferenceImage: "data:image/png;base64,legacy-product",
       styleReferenceImage: ""
     });
