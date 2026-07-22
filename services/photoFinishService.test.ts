@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from "vitest";
-import { applyPhotoFinish, preferredImageUrl } from "./photoFinishService";
+import { applyPhotoFinish, finishCompletedJobs, preferredImageUrl } from "./photoFinishService";
 import { createImageJobs, createProductBatch } from "../domain/productWorkflow";
 
 describe("photo finish service", () => {
@@ -46,5 +46,17 @@ describe("photo finish service", () => {
       loadImage: async () => { throw new Error("decode failed"); },
       createCanvas: () => document.createElement("canvas")
     })).resolves.toBe("original");
+  });
+
+  it("stores finished output beside the original completed image", async () => {
+    const batch = createProductBatch();
+    batch.prompts = [{ id: "p", prompt: "scene", selected: true, status: "ready", createdAt: 1, updatedAt: 1 }];
+    const [job] = createImageJobs(batch);
+    const result = await finishCompletedJobs(
+      [{ ...job, status: "completed", resultUrl: "original" }],
+      "subtle",
+      async value => `${value}-finished`
+    );
+    expect(result[0]).toMatchObject({ resultUrl: "original", finishedResultUrl: "original-finished" });
   });
 });

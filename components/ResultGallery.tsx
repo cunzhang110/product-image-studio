@@ -1,13 +1,17 @@
-import React from "react";
-import { Download, Image, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import React, { useState } from "react";
+import { Download, Image, LoaderCircle, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import type { ImageGeneration } from "../domain/productWorkflow";
+import { preferredImageUrl } from "../services/photoFinishService";
 
 interface ResultGalleryProps {
   images: ImageGeneration[];
   onRetry: (job: ImageGeneration) => void;
+  onRefinish: (job: ImageGeneration) => void;
 }
 
-export const ResultGallery: React.FC<ResultGalleryProps> = ({ images, onRetry }) => (
+export const ResultGallery: React.FC<ResultGalleryProps> = ({ images, onRetry, onRefinish }) => {
+  const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
+  return (
   <section className="workspace-section results-section">
     <div className="section-heading">
       <div>
@@ -25,7 +29,7 @@ export const ResultGallery: React.FC<ResultGalleryProps> = ({ images, onRetry })
           <article className="result-item" key={job.id}>
             <div className="result-media">
               {job.resultUrl ? (
-                <img src={job.resultUrl} alt={job.promptSnapshot} />
+                <img src={showOriginal[job.id] ? job.resultUrl : preferredImageUrl(job)} alt={job.promptSnapshot} />
               ) : job.status === "failed" ? (
                 <div className="result-placeholder failed"><TriangleAlert size={24} /><span>{job.error || "生成失败"}</span></div>
               ) : (
@@ -38,9 +42,11 @@ export const ResultGallery: React.FC<ResultGalleryProps> = ({ images, onRetry })
               <span className={`job-status ${job.status}`}>{job.status === "completed" ? "已完成" : job.status === "failed" ? "失败" : job.status === "generating" ? "生成中" : "排队"}</span>
               <div>
                 {job.status === "failed" && <button className="icon-button" title="重试" onClick={() => onRetry(job)}><RefreshCw size={15} /></button>}
+                {job.finishedResultUrl && <button className="icon-button" title={showOriginal[job.id] ? "查看实拍优化" : "查看原图"} onClick={() => setShowOriginal(current => ({ ...current, [job.id]: !current[job.id] }))}><Image size={15} /></button>}
+                {job.resultUrl && <button className="icon-button" title="重新优化" onClick={() => onRefinish(job)}><Sparkles size={15} /></button>}
                 {job.resultUrl && <button className="icon-button" title="下载" onClick={() => {
                   const link = document.createElement("a");
-                  link.href = job.resultUrl!;
+                  link.href = preferredImageUrl(job)!;
                   link.download = `product-${index + 1}.png`;
                   link.click();
                 }}><Download size={15} /></button>}
@@ -51,4 +57,5 @@ export const ResultGallery: React.FC<ResultGalleryProps> = ({ images, onRetry })
       </div>
     )}
   </section>
-);
+  );
+};

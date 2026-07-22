@@ -41,6 +41,7 @@ import { generateProductPromptPlan, generateProductPrompts } from "./services/pr
 import { continueManualAnchoredBatch, resumeProductBatch, runAutomaticProductBatch, startManualAnchoredBatch, type ProductBatchWorkflowDependencies } from "./services/productBatchWorkflow";
 import { BatchRunRegistry } from "./services/batchRunRegistry";
 import { MuzhiBatchScheduler, type MuzhiSchedulerSnapshot } from "./services/muzhiBatchScheduler";
+import { applyPhotoFinish, finishCompletedJobs, preferredImageUrl } from "./services/photoFinishService";
 import type { ImageSize, ServiceProvider } from "./types";
 import {
   loadMuzhiConcurrencyPreference,
@@ -375,7 +376,10 @@ const App: React.FC = () => {
 
     const completedGroups = await Promise.all(runs);
     for (const completed of completedGroups) mergeJobs(completed);
-    return jobs.map(job => latestJobs.get(job.id) || job);
+    const completedJobs = jobs.map(job => latestJobs.get(job.id) || job);
+    const finishedJobs = await finishCompletedJobs(completedJobs, batch.photoFinishLevel);
+    onJobs(finishedJobs);
+    return finishedJobs;
   };
 
   const workflowDependencies: ProductBatchWorkflowDependencies = {
@@ -534,7 +538,7 @@ const App: React.FC = () => {
     const batchId = activeBatch.id;
     if (runningBatchIds.has(batchId)) return;
     const controller = beginRun(batchId);
-    const retryJob = { ...job, status: "idle" as const, error: undefined, resultUrl: undefined };
+    const retryJob = { ...job, status: "idle" as const, error: undefined, resultUrl: undefined, finishedResultUrl: undefined };
     try {
       updateBatch(batchId, batch => ({
         ...batch,
@@ -566,6 +570,23 @@ const App: React.FC = () => {
     } finally {
       finishRun(batchId, controller);
     }
+  };
+
+  const handleRefinishJob = async (job: ImageGeneration) => {
+    if (!activeBatch || !job.resultUrl) return;
+    if (activeBatch.photoFinishLevel === "off") {
+      updateBatch(activeBatch.id, batch => ({
+        ...batch,
+        images: batch.images.map(item => item.id === job.id ? { ...item, finishedResultUrl: undefined } : item)
+      }));
+      return showToast("实拍质感已关闭，当前显示原图", "info");
+    }
+    const finishedResultUrl = await applyPhotoFinish(job.resultUrl, activeBatch.photoFinishLevel);
+    updateBatch(activeBatch.id, batch => ({
+      ...batch,
+      images: batch.images.map(item => item.id === job.id ? { ...item, finishedResultUrl } : item)
+    }));
+    showToast("实拍质感优化完成", "success");
   };
 
   const handleStopGeneration = () => {
@@ -619,10 +640,11 @@ const App: React.FC = () => {
     const zip = new JSZip();
     for (let index = 0; index < completed.length; index += 1) {
       const job = completed[index];
-      if (job.resultUrl?.startsWith("data:")) {
-        zip.file(`${activeBatch.name}-${index + 1}.png`, job.resultUrl.split(",")[1], { base64: true });
-      } else if (job.resultUrl) {
-        const blob = await fetch(job.resultUrl).then(response => response.blob());
+      const downloadUrl = preferredImageUrl(job);
+      if (downloadUrl?.startsWith("data:")) {
+        zip.file(`${activeBatch.name}-${index + 1}.jpg`, downloadUrl.split(",")[1], { base64: true });
+      } else if (downloadUrl) {
+        const blob = await fetch(downloadUrl).then(response => response.blob());
         zip.file(`${activeBatch.name}-${index + 1}.png`, blob);
       }
     }
@@ -756,7 +778,7 @@ const App: React.FC = () => {
             />
           )}
 
-          {activeBatch.stage === "results" && <ResultGallery images={activeBatch.images} onRetry={handleRetryJob} />}
+          {activeBatch.stage === "results" && <ResultGallery images={activeBatch.images} onRetry={handleRetryJob} onRefinish={handleRefinishJob} />}
         </main>
 
         <aside className="execution-panel">
@@ -781,6 +803,18 @@ const App: React.FC = () => {
           <div className="setting-row">
             <label>画幅比例<select value={activeBatch.aspectRatio} onChange={event => patchActiveBatch({ aspectRatio: event.target.value })}>{ASPECT_RATIOS.map(ratio => <option key={ratio}>{ratio}</option>)}</select></label>
             <label>分辨率<select value={activeBatch.imageSize} onChange={event => patchActiveBatch({ imageSize: event.target.value as ImageSize })}>{["1K", "2K", "4K"].map(size => <option key={size}>{size}</option>)}</select></label>
+          </div>
+
+          <div className="setting-group">
+            <label>实拍质感</label>
+            <div className="segment-control three">
+              {(["off", "subtle", "natural"] as const).map(level => (
+                <button key={level} className={activeBatch.photoFinishLevel === level ? "active" : ""} onClick={() => patchActiveBatch({ photoFinishLevel: level })}>
+                  {level === "off" ? "关闭" : level === "subtle" ? "轻微" : "自然"}
+                </button>
+              ))}
+            </div>
+            <small>浏览器本地处理，不额外调用 AI</small>
           </div>
 
           {activeBatch.imageProvider === "muzhi" ? (

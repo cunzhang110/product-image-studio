@@ -53,3 +53,15 @@ export const applyPhotoFinish = async (
 };
 
 export const preferredImageUrl = (job: ImageGeneration) => job.finishedResultUrl || job.resultUrl;
+
+export const finishCompletedJobs = async (
+  jobs: ImageGeneration[],
+  level: PhotoFinishLevel,
+  finish: (dataUrl: string, level: PhotoFinishLevel) => Promise<string> = applyPhotoFinish
+) => Promise.all(jobs.map(async job => {
+  if (job.status !== "completed" || !job.resultUrl || level === "off") {
+    return { ...job, finishedResultUrl: undefined };
+  }
+  const finishedResultUrl = await finish(job.resultUrl, level);
+  return { ...job, finishedResultUrl };
+}));

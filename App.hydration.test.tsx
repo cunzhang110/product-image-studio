@@ -89,6 +89,16 @@ describe("App workspace hydration", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows the batch real-photo finish setting", async () => {
+    dbMocks.loadBatches.mockResolvedValue([createProductBatch("质感设置")]);
+    dbMocks.loadPreference.mockResolvedValue(null);
+    const { container } = await mountApp();
+    await flushHydration();
+    expect(container.textContent).toContain("实拍质感");
+    expect(container.textContent).toContain("轻微");
+    expect(container.textContent).toContain("自然");
+  });
+
   it("does not render an editable workspace while hydration is pending", async () => {
     let resolveBatches!: (batches: ProductBatch[]) => void;
     let resolvePreference!: (preference: string | null) => void;
